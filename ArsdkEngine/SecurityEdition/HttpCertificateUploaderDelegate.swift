@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Parrot Drones SAS
+// Copyright (C) 2020 Parrot Drones SAS
 //
 //    Redistribution and use in source and binary forms, with or without
 //    modification, are permitted provided that the following conditions
@@ -30,30 +30,46 @@
 import Foundation
 import GroundSdk
 
-/// FlightPlan uploader that works with http
-class HttpFlightPlanUploader: ArsdkFlightplanUploader {
+/// Certificate uploader for Http
+class HttpCertificateUploaderDelegate: CertificateUploaderDelegate {
 
-    /// Update REST Api.
-    /// Not nil when uploader has been configured. Nil after a reset.
-    private var flightPlanApi: FlightPlanRestApi?
+    /// Security edition REST Api.
+    private var certificateUploaderApi: CertificateUploaderRestApi?
 
-    func configure(flightPlanPilotingItfController: FlightPlanPilotingItfController) {
-        if let droneServer = flightPlanPilotingItfController.deviceController.droneServer {
-            flightPlanApi = FlightPlanRestApi(server: droneServer)
+    /// DeviceController, used to upload the firmware.
+    private let deviceController: DeviceController
+
+    /// Constructor
+    ///
+    /// - Parameter deviceController: the device controller
+    init(deviceController: DeviceController) {
+        self.deviceController = deviceController
+    }
+
+    /// Configure
+    func configure() {
+        if let droneServer = deviceController.droneServer {
+            certificateUploaderApi = CertificateUploaderRestApi(server: droneServer)
         }
     }
 
+    /// Reset
     func reset() {
-        flightPlanApi = nil
+        certificateUploaderApi = nil
     }
 
-    func uploadFlightPlan(filepath: String, completion: @escaping (Bool, String?) -> Void) -> CancelableCore? {
-        return flightPlanApi?.upload(filepath: filepath, completion: { success, flightPlanUid in
+    /// Upload the certificate
+    ///
+    /// - Parameters:
+    ///   - certificate: certificate file path
+    ///   - completion: completion callback
+    func upload(certificate filepath: String, completion: @escaping (Bool) -> Void) -> CancelableCore? {
+        return certificateUploaderApi?.upload(filepath: filepath, completion: { success in
             if success {
-                completion(true, flightPlanUid)
+                completion(true)
             } else {
-                completion(false, nil)
-                ULog.w(.flightPlanTag, "HTTP - Upload of mavlink file failed")
+                completion(false)
+                ULog.w(.credentialTag, "HTTP - Upload of certificate file failed")
             }
         })
     }

@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Parrot Drones SAS
+// Copyright (C) 2020 Parrot Drones SAS
 //
 //    Redistribution and use in source and binary forms, with or without
 //    modification, are permitted provided that the following conditions
@@ -30,61 +30,68 @@
 import Foundation
 import GroundSdk
 
-/// Battery info component controller for Common messages based drones
-class CommonBatteryInfo: DeviceComponentController {
+/// Certificate uploader delegate
+protocol CertificateUploaderDelegate: class {
 
-    /// Battery info component
-    private var batteryInfo: BatteryInfoCore!
+    /// Configure the uploader
+    func configure()
+
+    /// Reset the uploader
+    func reset()
+
+    /// Upload a given certificate file on the drone.
+    ///
+    /// - Parameters:
+    ///   - filepath: local path of the certificate file
+    ///   - completion: the completion callback (called on the main thread)
+    ///   - success: true or false if the upload is done with success
+    /// - Returns: a request that can be canceled
+    func upload(certificate
+        filepath: String, completion: @escaping (_ success: Bool) -> Void) -> CancelableCore?
+}
+
+/// Base controller for certificate uploader peripheral
+class CertificateUploaderController: DeviceComponentController, CertificateUploaderBackend {
+
+    /// Certificate uploader component
+    private var certificateUploader: CertificateUploaderCore!
+
+    // swiftlint:disable weak_delegate
+    /// Delegate to upload the certificate
+    private var delegate: CertificateUploaderDelegate
 
     /// Constructor
     ///
     /// - Parameter deviceController: device controller owning this component controller (weak)
     override init(deviceController: DeviceController) {
+        self.delegate = HttpCertificateUploaderDelegate(deviceController: deviceController)
         super.init(deviceController: deviceController)
-        self.batteryInfo = BatteryInfoCore(store: deviceController.device.instrumentStore)
+        certificateUploader = CertificateUploaderCore(store: deviceController.device.peripheralStore, backend: self)
     }
 
     /// Drone is connected
     override func didConnect() {
-        batteryInfo.publish()
+        super.didConnect()
+        certificateUploader.publish()
+        delegate.configure()
     }
 
     /// Drone is disconnected
     override func didDisconnect() {
-        batteryInfo.unpublish()
+        certificateUploader.unpublish()
     }
 
-    /// A command has been received
-    ///
-    /// - Parameter command: received command
-    override func didReceiveCommand(_ command: OpaquePointer) {
-        let featureId = ArsdkCommand.getFeatureId(command)
-        if featureId == kArsdkFeatureCommonCommonstateUid {
-            ArsdkFeatureCommonCommonstate.decode(command, callback: self)
-        } else if featureId == kArsdkFeatureBatteryUid {
-            ArsdkFeatureBattery.decode(command, callback: self)
-        }
-    }
-}
-
-/// Common common state decode callback implementation
-extension CommonBatteryInfo: ArsdkFeatureCommonCommonstateCallback {
-    func onBatteryStateChanged(percent: UInt) {
-        batteryInfo.update(batteryLevel: Int(percent)).notifyUpdated()
-    }
-}
-
-/// Feature battery decode callback implementation
-extension CommonBatteryInfo: ArsdkFeatureBatteryCallback {
-    func onHealth(stateOfHealth: UInt) {
-        batteryInfo.update(batteryHealth: Int(stateOfHealth)).notifyUpdated()
+    /// Drone is about to be forgotten
+    override func willForget() {
+        certificateUploader.unpublish()
+        super.willForget()
     }
 
-    func onCycleCount(count: UInt) {
-        batteryInfo.update(cycleCount: Int(count)).notifyUpdated()
-    }
-
-    func onSerial(serial: String!) {
-        batteryInfo.update(serial: serial).notifyUpdated()
+    func upload(certificate filepath: String) {
+        _ = delegate.upload(certificate: filepath, completion: { success in
+            if !success {
+                ULog.w(.credentialTag, "HTTP - Upload of certificate file failed")
+            }
+        })
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Parrot Drones SAS
+// Copyright (C) 2020 Parrot Drones SAS
 //
 //    Redistribution and use in source and binary forms, with or without
 //    modification, are permitted provided that the following conditions
@@ -25,13 +25,13 @@
 //    AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 //    OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
 //    OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
-//    SUCH DAMAGE
+//    SUCH DAMAGE.
 
 import Foundation
 import GroundSdk
 
-/// Rest api for Ephemeris to upload on Drone.
-class EphemerisRestApi {
+/// Rest api for certificate upload on http server.
+class CertificateUploaderRestApi {
 
     /// Result of an upload request
     enum Result: CustomStringConvertible {
@@ -57,36 +57,33 @@ class EphemerisRestApi {
 
     /// Constructor
     ///
-    /// - Parameter server: the drone server that the upload should use
+    /// - Parameter server: the drone server that the update should use
     init(server: DroneServer) {
         self.server = server
     }
 
-    /// Updates the ephemeris with local ephemeris
-    ///
-    /// - Note:
-    ///     - No check will be done on the ephemeris to know if it matches with the Ephemeris from the drone
-    ///     - The returned task should be kept in order to cancel the upload. The upload will continue even if is not
-    ///       kept
+    /// Upload a SecurityEdition certificate to the device with a local file
     ///
     /// - Parameters:
-    ///   - ephemeris: the ephemeris to upload with
+    ///   - filepath: certificate's filepath to upload
     ///   - completion: the completion callback (called on the main thread)
-    ///   - result: the completion status
-    func upload(
-        ephemeris: URL, completion: @escaping (_ result: Result) -> Void) -> CancelableCore {
-        return server.putFile(api: "/api/v1/upload/ephemeris", fileUrl: ephemeris, progress: {_ in},
-                              completion: { result, _ in
+    ///   - success: true or false if the upload is done with success
+    /// - Returns: The request.
+    func upload(filepath: String,
+                completion: @escaping (_ success: Bool) -> Void) -> CancelableCore {
+        return server.putFile(
+            api: "/api/v1/credential/certificate", fileUrl: URL(fileURLWithPath: filepath),
+            progress: { _ in }, completion: { result, _ in
                 switch result {
                 case .success:
-                    ULog.w(.ephemerisTag, "ephemeris success upload")
-                    completion(.success)
+                    ULog.w(.credentialTag, "certificate upload success upload")
+                    completion(true)
                 case .error, .httpError:
-                    ULog.w(.ephemerisTag, "ephemeris error upload")
-                    completion(.error)
+                    ULog.w(.credentialTag, "certificate upload error upload")
+                    completion(false)
                 case .canceled:
-                    ULog.w(.ephemerisTag, "ephemeris canceled upload")
-                    completion(.canceled)
+                    ULog.w(.credentialTag, "certificate upload canceled upload")
+                    completion(false)
                 }
         })
     }
