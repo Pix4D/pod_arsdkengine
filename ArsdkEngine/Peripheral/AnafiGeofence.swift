@@ -238,7 +238,7 @@ class AnafiGeofence: DeviceComponentController, GeofenceBackend {
                 case let .maxDistance(min, value, max):
                     presetStore.writeIfNew(key: setting.key, value: value)
                     deviceStore.writeRange(key: setting.key, min: min, max: max)
-                case .mode (let mode):
+                case .mode(let mode):
                     presetStore.writeIfNew(key: setting.key, value: mode)
                 }
             }

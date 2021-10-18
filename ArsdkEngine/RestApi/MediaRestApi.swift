@@ -55,9 +55,19 @@ class MediaRestApi {
     ///   - mediaList: list of medias on the drone
     /// - Returns: the request
     func getMediaList(
+        storage: StorageType? = nil,
         runId: String? = nil,
         completion: @escaping (_ mediaList: [MediaItemCore]?) -> Void) -> CancelableCore {
-        return server.getData(api: "\(baseApi)/medias") { result, data in
+        var api = "\(baseApi)/medias"
+        if let storage = storage {
+            switch storage {
+            case .internal:
+                api.append("/storage=internal")
+            case .removable:
+                api.append("/storage=sdcard")
+            }
+        }
+        return server.getData(api: api) { result, data in
             switch result {
             case .success:
                 // listing medias is successful
@@ -159,6 +169,44 @@ class MediaRestApi {
         return nil
     }
 
+    /// Download a resource signature.
+    ///
+    /// - Parameters:
+    ///   - resource: the resource for which to download signature
+    ///   - destDirectoryPath: the directory path where the resource should be stored
+    ///   - completion: completion callback
+    ///   - signatureUrl: the url of the signature. `nil` if an error occurred.
+    /// - Returns: the request
+    func downloadSignature(
+        resource: MediaItemResourceCore, destDirectoryPath: String,
+        completion: @escaping (_ signatureUrl: URL?) -> Void) -> CancelableCore? {
+
+        if let httpResource = resource.backendData as? MediaResource,
+            let signatureUrl = httpResource.signatureUrlStr {
+
+            // extract signature file extension from url, or use default extension
+            var signatureExtension: String
+            if let extensionIndex = signatureUrl.lastIndex(of: "."),
+                !signatureUrl.suffix(from: extensionIndex).contains("/") {
+                signatureExtension = String(signatureUrl.suffix(from: extensionIndex))
+            } else {
+                signatureExtension = ".sig"
+            }
+            // build signature file name based on resource id
+            let signatureFileName = "\(httpResource.resId)\(signatureExtension)"
+
+            return server.downloadFile(
+                api: signatureUrl,
+                destination: URL(fileURLWithPath: destDirectoryPath)
+                    .appendingPathComponent(signatureFileName),
+                progress: { _ in },
+                completion: { _, localSignatureUrl in
+                    completion(localSignatureUrl)
+            })
+        }
+        return nil
+    }
+
     /// Delete a given media on the device
     ///
     /// - Parameters:
@@ -227,6 +275,8 @@ class MediaRestApi {
             case size
             case duration
             case runId = "run_id"
+            case customId = "custom_id"
+            case customTitle = "title"
             case thumbnailUrlStr = "thumbnail"
             case streamUrlStr = "replay_url"
             case location = "gps"
@@ -237,33 +287,37 @@ class MediaRestApi {
             case thermal
         }
 
-        /// Media id
+        /// Media identifier.
         let mediaId: String
-        /// Media type
+        /// Media type.
         let type: MediaType
-        /// Media date
+        /// Media date.
         let date: Date
-        /// Media size in bytes
+        /// Media size in bytes.
         let size: Int64
-        /// Media duration in ms
+        /// Media duration in ms.
         let duration: Int64?
-        /// Run id
+        /// Run identifier.
         let runId: String
-        /// Thumbnail url as string
+        /// Application custom identifier.
+        let customId: String?
+        /// Application custom title.
+        let customTitle: String?
+        /// Thumbnail url as string.
         let thumbnailUrlStr: String?
-        /// Stream url as string
+        /// Stream url as string.
         let streamUrlStr: String?
-        /// Media location
+        /// Media location.
         let location: Location?
-        /// Photo Mode
+        /// Photo Mode.
         let photoMode: PhotoMode?
-        /// Panorama type
+        /// Panorama type.
         let panoramaType: PanoramaType?
-        /// Resources of the media
+        /// Resources of the media.
         let resources: [MediaResource]
-        /// Expected number of resources in the media
+        /// Expected number of resources in the media.
         let expectedCount: UInt64?
-        /// `true` when the media contains thermal metadata, `false` otherwise
+        /// `true` when the media contains thermal metadata, `false` otherwise.
         let thermal: Bool?
     }
 
@@ -289,6 +343,8 @@ class MediaRestApi {
             case width
             case height
             case thermal
+            case storage
+            case signatureUrlStr = "signature"
         }
 
         /// Resource id
@@ -317,6 +373,16 @@ class MediaRestApi {
         let height: Int
         /// `true` when the ressource contains thermal metadata, `false` otherwise
         let thermal: Bool?
+        /// Storage where the item is stored
+        let storage: ResourceStorageType?
+        /// Resource signature url as string
+        let signatureUrlStr: String?
+    }
+
+    /// Resource storage as described by the REST api
+    fileprivate enum ResourceStorageType: String, Decodable {
+        case `internal` = "internal_storage"
+        case sdcard = "removable_storage"
     }
 
     /// Resource type as described by the REST api
@@ -354,6 +420,7 @@ class MediaRestApi {
         case horizontal_180 = "HORIZONTAL_180"
         case vertical_180 = "VERTICAL_180"
         case spherical = "SPHERICAL"
+        case super_wide = "SUPER_WIDE"
     }
 }
 
@@ -378,7 +445,8 @@ fileprivate extension MediaItemCore {
             let metadataTypes: Set<MetadataType> = httpMedia.thermal == true ? [.thermal] : []
             return MediaItemCore(
                 uid: httpMedia.mediaId, name: httpMedia.mediaId, type: type, runUid: httpMedia.runId,
-                creationDate: httpMedia.date, expectedCount: httpMedia.expectedCount,
+                customId: httpMedia.customId, customTitle: httpMedia.customTitle, creationDate: httpMedia.date,
+                expectedCount: httpMedia.expectedCount,
                 photoMode: photoMode, panoramaType: panoramaType, streamUrl: httpMedia.streamUrlStr,
                 resources: resources, backendData: httpMedia, metadataTypes: metadataTypes)
         }
@@ -403,7 +471,8 @@ fileprivate extension MediaItemCore {
     static let panoramaTypeMapper = Mapper<MediaRestApi.PanoramaType, MediaItem.PanoramaType>([
         .horizontal_180: .horizontal_180,
         .vertical_180: .vertical_180,
-        .spherical: .spherical])
+        .spherical: .spherical,
+        .super_wide: .super_wide])
 }
 
 /// Extension of MediaItemResourceCore that adds creation from http resource objects
@@ -416,20 +485,26 @@ fileprivate extension MediaItemResourceCore {
         if let format = formatMapper.map(from: httpResource.format) {
             let duration = httpResource.duration.flatMap {Double($0)/1000}
             var location: CLLocation?
-            if httpResource.location != nil {
-                let location2D = CLLocationCoordinate2DMake(httpResource.location!.latitude,
-                                                            httpResource.location!.longitude)
+            if let httpLocation = httpResource.location {
+                let location2D = CLLocationCoordinate2DMake(httpLocation.latitude,
+                                                            httpLocation.longitude)
                 if CLLocationCoordinate2DIsValid(location2D) {
-                    location = CLLocation(coordinate: location2D, altitude: httpResource.location!.altitude,
+                    location = CLLocation(coordinate: location2D, altitude: httpLocation.altitude,
                                           horizontalAccuracy: -1,
                                           verticalAccuracy: -1, timestamp: httpResource.date)
                 }
             }
+            var storage: StorageType?
+            if let httpStorage = httpResource.storage {
+                storage = storageMapper.map(from: httpStorage)
+            }
             let metadataTypes: Set<MediaItem.MetadataType> = httpResource.thermal == true ? [.thermal] : []
+            let signed = httpResource.signatureUrlStr != nil
             return MediaItemResourceCore(
                 uid: httpResource.resId, format: format, size: httpResource.size, duration: duration,
                 streamUrl: httpResource.streamUrlStr, backendData: httpResource, location: location,
-                creationDate: httpResource.date, metadataTypes: metadataTypes)
+                creationDate: httpResource.date, metadataTypes: metadataTypes,
+                storage: storage, signed: signed)
         }
         return nil
     }
@@ -439,4 +514,9 @@ fileprivate extension MediaItemResourceCore {
         .jpg: .jpg,
         .dng: .dng,
         .mp4: .mp4])
+
+    /// Mapper that maps media storage from the REST api to the `MediaItem.StorageType`
+    static let storageMapper = Mapper<MediaRestApi.ResourceStorageType, StorageType>([
+        .internal: .internal,
+        .sdcard: .removable])
 }

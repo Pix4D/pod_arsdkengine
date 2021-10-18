@@ -351,6 +351,7 @@ class ReturnHomePilotingItfController: ActivablePilotingItfController, ReturnHom
             .update(homeLocation: nil)
             .update(currentTarget: .takeOffPosition)
             .update(gpsFixedOnTakeOff: false)
+            .update(unavailabilityReasons: nil)
         // unpublish if offline settings are disabled
         if GroundSdkConfig.sharedInstance.offlineSettings == .off {
             pilotingItf.unpublish()

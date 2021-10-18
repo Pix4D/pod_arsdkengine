@@ -43,15 +43,21 @@ class BlackBoxContext {
     /// Remote control session, nil if it has not been opened
     private var rcSession: BlackBoxRcSession?
 
+    /// Black box buffer capacity in seconds
+    private var blackBoxBufferCapacity: Int
+
     /// Constructor
     ///
     /// - Parameters:
+    ///   - blackBoxBufferCapacity: black box buffer capacity in seconds
     ///   - blackBoxReadyCb: block that will be called when the black box is ready to be archived
     ///   - blackBox: the black box data to archive
     ///   - closeCb: block that will be called when the context is about to be closed
-    init(blackBoxReadyCb: @escaping (_ blackBox: BlackBoxData) -> Void, closeCb: @escaping () -> Void) {
+    init(blackBoxBufferCapacity: Int,
+         blackBoxReadyCb: @escaping (_ blackBox: BlackBoxData) -> Void, closeCb: @escaping () -> Void) {
         self.blackBoxReadyCb = blackBoxReadyCb
         self.closeCb = closeCb
+        self.blackBoxBufferCapacity = blackBoxBufferCapacity
     }
 
     /// Creates a drone session
@@ -61,7 +67,7 @@ class BlackBoxContext {
     func createDroneSession(drone: DroneCore) -> BlackBoxDroneSession {
         precondition(droneSession == nil, "Drone session is already existing.")
 
-        droneSession = BlackBoxDroneSession(drone: drone) {
+        droneSession = BlackBoxDroneSession(blackBoxBufferCapacity: blackBoxBufferCapacity, drone: drone) {
             if let rcSession = self.rcSession {
                 self.droneSession!.setRemoteControlData(rcSession.rcData)
             }

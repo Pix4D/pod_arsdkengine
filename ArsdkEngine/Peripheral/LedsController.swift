@@ -202,7 +202,7 @@ class LedsController: DeviceComponentController, LedsBackend {
         // iterate settings received during the connection
         for setting in droneSettings {
             switch setting {
-            case .state (let state):
+            case .state(let state):
                 if let preset: Bool = presetStore?.read(key: setting.key) {
                     if preset != state {
                         _ = sendStateCommand(preset)
@@ -248,6 +248,8 @@ extension LedsController: ArsdkFeatureLedsCallback {
         case .on:
             settingDidChange(.state(true))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown LedsSwitchState, skipping this event.")
         }

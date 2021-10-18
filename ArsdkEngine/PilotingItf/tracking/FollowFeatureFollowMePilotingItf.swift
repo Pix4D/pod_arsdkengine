@@ -30,7 +30,7 @@
 import Foundation
 import GroundSdk
 
-/// LookAt piloting interface component controller for the f,00000or the Follow feature based drones
+/// Follow me piloting interface component controller for the Follow feature based drones
 class FollowFeatureFollowMePilotingItf: FollowFeatureTrackingPilotingItf, FollowMePilotingItfBackend {
 
     /// Mode requested in the pilotingItf

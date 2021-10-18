@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// Firmware updater specific uploader part
-protocol UpdaterFirmwareUploader: class {
+protocol UpdaterFirmwareUploader: AnyObject {
     /// Configure the delegate
     ///
     /// - Parameter updater: the updater in charge
@@ -57,7 +57,7 @@ protocol UpdaterFirmwareUploader: class {
 }
 
 /// Updater event receiver delegate
-protocol UpdaterEventReceiver: class {
+protocol UpdaterEventReceiver: AnyObject {
     /// Configure the delegate
     ///
     /// - Parameters:
@@ -102,8 +102,11 @@ class UpdaterController: DeviceComponentController {
         /// Instance of the event receiver delegate
         var messageReceiver: UpdaterEventReceiver {
             switch deviceModel {
-            case .rc:       return RcUpdaterEventReceiver()
-            case .drone:    return DroneUpdaterEventReceiver()
+            case .rc(.skyCtrl3),
+                 .rc(.skyCtrlUA): return Sc3UpdaterEventReceiver()
+            case .rc(.skyCtrl4):  return Sc4UpdaterEventReceiver()
+            case .drone(.anafi2): return Anafi2UpdaterEventReceiver()
+            case .drone:          return AnafiUpdaterEventReceiver()
             }
         }
     }
@@ -258,13 +261,8 @@ class UpdaterController: DeviceComponentController {
         updateUnavailabilityReasons = [.notConnected]
 
         if !updateQueue.isEmpty {
-            // if the current update is in processing state, move to .waitingForReboot state,
-            // otherwise consider the update as failed
-            if let currentUpdate = firmwareUpdater.currentUpdate, currentUpdate.state == .processing {
-                firmwareUpdater.update(updateState: .waitingForReboot)
-            } else {
-                updateDidEnd(withState: .failed)
-            }
+            // if updates are in progress, move to .waitingForReboot state
+            firmwareUpdater.update(updateState: .waitingForReboot)
         }
         // call notifyUpdated before unpublishing the component to be sure that the waitingForReboot is received
         firmwareUpdater.notifyUpdated()

@@ -138,6 +138,8 @@ private class ArsdkDeviceProvider: DeviceProvider {
         case .mux:
             return ArsdkDeviceProvider.usb
         case .unknown:
+            fallthrough
+        @unknown default:
             return nil
         }
     }
@@ -262,14 +264,16 @@ class ArsdkDeviceCtrlBackend: NSObject, DeviceControllerBackend {
             deviceHandle, deviceType: model.internalId, port: UInt16(port), completion: completion)
     }
 
-    func destroyTcpProxy(block: @escaping () -> Void) {
-        arsdk.arsdkCore.dispatch_sync {
-            block()
-        }
+    func createVideoSourceLive(cameraType: ArsdkSourceLiveCameraType) -> ArsdkSourceLive {
+        return arsdk.arsdkCore.createVideoSourceLive(deviceHandle, cameraType: cameraType)
     }
 
-    func createVideoStream(url: String, track: String, listener: SdkCoreStreamListener) -> ArsdkStream {
-        return arsdk.arsdkCore.createVideoStream(deviceHandle, url: url, track: track, listener: listener)
+    func createVideoSourceMedia(url: String, trackName: String?) -> ArsdkSourceMedia {
+        return arsdk.arsdkCore.createVideoSourceMedia(deviceHandle, url: url, trackName: trackName)
+    }
+
+    func createVideoStream(listener: ArsdkStreamListener) -> ArsdkStream {
+        return arsdk.arsdkCore.createVideoStream(listener)
     }
 
     func browseMedia(model: DeviceModel, completion: @escaping ArsdkMediaListCompletion) -> ArsdkRequest {
@@ -363,6 +367,8 @@ extension ArsdkDeviceCtrlBackend: ArsdkCoreDeviceListener {
             cause = .failure
         case .reject:
             cause = .refused
+        @unknown default:
+            cause = .failure
         }
         deviceController.linkDidCancelConnect(cause: cause, removing: removing)
         if removing {

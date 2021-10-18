@@ -60,10 +60,11 @@ class BlackBoxDroneSession: NSObject, BlackBoxSession {
     /// Constructor
     ///
     /// - Parameters:
+    ///   - blackBoxBufferCapacity: buffer capacity for blackbox in seconds
     ///   - drone: drone to record a black box from
     ///   - didClose: block that will be called when the session is about to close
-    init(drone: DroneCore, didClose: @escaping () -> Void) {
-        blackBox = BlackBoxData(drone: drone)
+    init(blackBoxBufferCapacity: Int, drone: DroneCore, didClose: @escaping () -> Void) {
+        blackBox = BlackBoxData(blackBoxBufferCapacity: blackBoxBufferCapacity, drone: drone)
         self.didClose = didClose
 
         super.init()
@@ -151,6 +152,8 @@ class BlackBoxDroneSession: NSObject, BlackBoxSession {
             ArsdkFeatureCommonSettingsstate.decode(command, callback: self)
         case kArsdkFeatureFollowMeUid:
             ArsdkFeatureFollowMe.decode(command, callback: self)
+        case kArsdkFeatureMotorsUid:
+            ArsdkFeatureMotors.decode(command, callback: self)
         default:
             break
         }
@@ -320,5 +323,11 @@ extension BlackBoxDroneSession: ArsdkFeatureFollowMeCallback {
         mode: ArsdkFeatureFollowMeMode, behavior: ArsdkFeatureFollowMeBehavior,
         animation: ArsdkFeatureFollowMeAnimation, animationAvailableBitField: UInt) {
         blackBox.add(event: BlackBoxEvent.followMeModeChange(mode: mode.rawValue))
+    }
+}
+
+extension BlackBoxDroneSession: ArsdkFeatureMotorsCallback {
+    func onThreeMotorsFlightStarted(id: ArsdkFeatureMotorsMotorId, reason: ArsdkFeatureMotorsThreeMotorsReason) {
+        blackBox.add(event: BlackBoxEvent.threeMotorsFlight(reason.rawValue))
     }
 }

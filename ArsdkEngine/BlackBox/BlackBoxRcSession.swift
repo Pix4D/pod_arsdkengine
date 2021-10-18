@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// Remote control session delegate
-protocol BlackBoxRcSessionDelegate: class {
+protocol BlackBoxRcSessionDelegate: AnyObject {
     /// Called when a button has been triggered
     ///
     /// - Parameter action: the button action

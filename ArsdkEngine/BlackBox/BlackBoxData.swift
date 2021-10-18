@@ -47,16 +47,20 @@ struct BlackBoxData: Encodable {
     private var events: [BlackBoxEvent] = []
 
     /// Flight data sample buffer (limited to the last 1 minute datas)
-    private var flightDatas = BlackBoxCircularArray<BlackBoxFlightData>(size: 5 * 60)
+    private var flightDatas: BlackBoxCircularArray<BlackBoxFlightData>
 
     /// Environment data sample buffer (limited to the last 1 minute datas)
-    private var environmentDatas = BlackBoxCircularArray<BlackBoxEnvironmentData>(size: 60)
+    private var environmentDatas: BlackBoxCircularArray<BlackBoxEnvironmentData>
 
     /// Constructor
     ///
-    /// - Parameter drone: drone that this black box is recorded for
-    init(drone: DroneCore) {
+    /// - Parameters:
+    ///   - blackBoxBufferCapacity: buffer capacity for blackbox in seconds
+    ///   - drone: drone that this black box is recorded for
+    init(blackBoxBufferCapacity: Int, drone: DroneCore) {
         header = BlackBoxHeaderData(drone: drone)
+        flightDatas = BlackBoxCircularArray<BlackBoxFlightData>(size: 5 * blackBoxBufferCapacity)
+        environmentDatas = BlackBoxCircularArray<BlackBoxEnvironmentData>(size: blackBoxBufferCapacity)
     }
 
     /// Records an event in the blackbox

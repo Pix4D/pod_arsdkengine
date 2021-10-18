@@ -131,6 +131,8 @@ extension AnafiMagnetometer: ArsdkFeatureCommonCalibrationstateCallback {
         case .none:
             magnetometer.update(currentAxis: .none)
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown axis, skipping this event.")
             return

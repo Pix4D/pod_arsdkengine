@@ -69,16 +69,21 @@ class DroneServer {
     ///
     /// - Parameters:
     ///   - api: api to use
+    ///   - query: query parameters to add
     ///   - completion: completion callback
     ///   - result: the request result
     ///   - data: the data that has been get. Nil if result is not `.success`
     /// - Returns: the request
     func getData(
-        api: String,
+        api: String, query: [String: String]? = nil,
         completion: @escaping (_ result: HttpSessionCore.Result, _ data: Data?) -> Void) -> CancelableCore {
 
-        let request = URLRequest(url: baseHttpUrl.appendingPathComponent(api),
-                                 cachePolicy: .reloadIgnoringLocalCacheData)
+        var urlComponents = URLComponents(url: baseHttpUrl.appendingPathComponent(api), resolvingAgainstBaseURL: false)!
+        urlComponents.queryItems = query?.map { return URLQueryItem(name: $0.key, value: $0.value) }
+        // The '+' symbol is not percent encoded by URLComponents, so we have to do it manually
+        urlComponents.percentEncodedQuery = urlComponents.percentEncodedQuery?
+            .replacingOccurrences(of: "+", with: "%2B")
+        let request = URLRequest(url: urlComponents.url!, cachePolicy: .reloadIgnoringLocalCacheData)
 
         return httpSession.getData(request: request, completion: completion)
     }
@@ -89,6 +94,7 @@ class DroneServer {
     ///
     /// - Parameters:
     ///   - api: api to use
+    ///   - query: query to add
     ///   - fileUrl: local file url
     ///   - timeoutInterval: the timeout interval. Default value is 60.
     ///   - progress: progress callback
@@ -98,13 +104,14 @@ class DroneServer {
     ///   - data: data returned in the response body
     /// - Returns: the request
     func putFile(
-        api: String, fileUrl: URL, timeoutInterval: TimeInterval = 60,
+        api: String, query: [String: String]? = nil, fileUrl: URL, timeoutInterval: TimeInterval = 60,
         progress: @escaping (_ progressValue: Int) -> Void,
         completion: @escaping (_ result: HttpSessionCore.Result, _ data: Data?) -> Void) -> CancelableCore {
 
-        let request = URLRequest(
-            url: baseHttpUrl.appendingPathComponent(api), cachePolicy: .reloadIgnoringLocalCacheData,
-            timeoutInterval: timeoutInterval)
+        var urlComponents = URLComponents(url: baseHttpUrl.appendingPathComponent(api), resolvingAgainstBaseURL: false)!
+        urlComponents.queryItems = query?.map { return URLQueryItem(name: $0.key, value: $0.value) }
+        let request = URLRequest(url: urlComponents.url!, cachePolicy: .reloadIgnoringLocalCacheData,
+        timeoutInterval: timeoutInterval)
 
         return httpSession.sendFile(request: request, fileUrl: fileUrl, progress: progress, completion: completion)
     }
@@ -165,13 +172,17 @@ class DroneServer {
     ///
     /// - Parameters:
     ///   - api: api to use
+    ///   - query: query to add
     ///   - completion: completion callback
     ///   - result: the request result
     /// - Returns: the request
-    func delete(api: String, completion: @escaping (_ result: HttpSessionCore.Result) -> Void) -> CancelableCore {
+    func delete(api: String, query: [String: String]? = nil,
+        completion: @escaping (_ result: HttpSessionCore.Result) -> Void) -> CancelableCore {
 
-        let request = URLRequest(url: baseHttpUrl.appendingPathComponent(api),
-                                 cachePolicy: .reloadIgnoringLocalCacheData)
+        var urlComponents = URLComponents(url: baseHttpUrl.appendingPathComponent(api), resolvingAgainstBaseURL: false)!
+        urlComponents.queryItems = query?.map { return URLQueryItem(name: $0.key, value: $0.value) }
+        let request = URLRequest(url: urlComponents.url!, cachePolicy: .reloadIgnoringLocalCacheData)
+
         return httpSession.delete(request: request, completion: completion)
     }
 

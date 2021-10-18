@@ -102,4 +102,8 @@ extension AnafiAltimeter: ArsdkFeatureArdrone3PilotingstateCallback {
             altimeter.update(absoluteAltitude: nil).notifyUpdated()
         }
     }
+
+    func onAltitudeAboveGroundChanged(altitude: Float) {
+        altimeter.update(groundRelativeAltitude: Double(altitude)).notifyUpdated()
+    }
 }

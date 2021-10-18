@@ -92,7 +92,7 @@ class FlightLogRestApi {
 
         return server.downloadFile(
             api: flightLog.urlPath,
-            destination: directory.appendingPathComponent(deviceUid + "_" + flightLog.name),
+            destination: directory.appendingPathComponent(flightLog.name),
             progress: { _ in },
             completion: { _, localFileUrl in
                 completion(localFileUrl)

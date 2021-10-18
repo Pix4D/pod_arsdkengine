@@ -64,6 +64,8 @@ extension WifiChannel {
             this = wifiChannels.channels5Ghz[channelId]
         case .bandSdkCoreUnknown:
             break
+        @unknown default:
+            this = nil
         }
         if let this = this {
             self = this
@@ -90,6 +92,8 @@ extension WifiChannel {
             this = wifiChannels.channels5Ghz[channelId]
             defaultChannel = .band_5_channel34
         case .bandSdkCoreUnknown:
+            fallthrough
+        @unknown default:
             ULog.w(.wifiTag, "Band is unknown, falling back to 2.4Ghz channel 1.")
             defaultChannel = .band_2_4_channel1
         }

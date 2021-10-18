@@ -30,7 +30,7 @@
 import Foundation
 import GroundSdk
 
-/// Compass component controller for SkyController messages based rc
+/// Compass component controller for SkyController messages based remote controls.
 class SkyControllerCompass: DeviceComponentController {
 
     /// Compass component

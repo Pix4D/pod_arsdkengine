@@ -103,21 +103,10 @@ class HttpFlightLogDownloaderDelegate: ArsdkFlightLogDownloaderDelegate {
             currentRequest = flightLogApi?.downloadFlightLog(
             flightLog, toDirectory: directory, deviceUid: deviceUid) { fileUrl in
                 if let fileUrl = fileUrl {
-                    if let converter = downloader.converter {
-                        let queue = DispatchQueue(label: "com.arsdkengine.gutmalog")
-
-                        queue.async {
-                            _ = converter.convert(fileUrl)
-                        }
-                    }
-                    self.downloadCount += 1
-                    downloader.flightLogDownloader.update(
-                        downloadedCount: self.downloadCount).notifyUpdated()
-                    downloader.flightLogStorage.notifyFlightLogReady(
-                        flightLogUrl: URL(fileURLWithPath: fileUrl.path))
-
+                    // delete flight log and download next flight log
                     self.deleteFlightLogAndDownloadNext(toDirectory: directory,
-                                                        downloader: downloader, flightLog: flightLog)
+                                                        downloader: downloader, flightLog: flightLog,
+                                                        fileUrl: fileUrl)
                 } else {
                     // even if the download failed, process next report
                     if !self.pendingDownloads.isEmpty {
@@ -144,16 +133,34 @@ class HttpFlightLogDownloaderDelegate: ArsdkFlightLogDownloaderDelegate {
     ///   - directory: directory in which flight logs should be stored
     ///   - downloader: the downloader in charge
     ///   - flightLog: flightlog to delete
+    ///   - fileUrl: fileUrl to upload
     private func deleteFlightLogAndDownloadNext(
         toDirectory directory: URL, downloader: ArsdkFlightLogDownloader,
-        flightLog: FlightLogRestApi.FlightLog) {
+        flightLog: FlightLogRestApi.FlightLog, fileUrl: URL) {
         // delete the distant report
-        self.currentRequest = self.flightLogApi?.deleteFlightLog(flightLog) { _ in
+        currentRequest = flightLogApi?.deleteFlightLog(flightLog) { _ in
+            self.downloadCount += 1
+            // notify downloader
+            downloader.flightLogDownloader.update(
+                downloadedCount: self.downloadCount).notifyUpdated()
+
+            downloader.flightLogConverterStorage?.notifyFlightLogReady(
+                flightLogUrl: URL(fileURLWithPath: fileUrl.path))
+            downloader.flightLogStorage?.notifyFlightLogReady(
+                flightLogUrl: URL(fileURLWithPath: fileUrl.path))
+
+            let deviceModel = ((downloader.deviceController as? DroneController) != nil) ? "drone" : "ctrl"
+            GroundSdkCore.logEvent(message: "EVT:LOGS;event='download';source='\(deviceModel)';" +
+                "file='\(fileUrl.lastPathComponent)'")
+
             // even if the deletion failed, process next report
             if !self.pendingDownloads.isEmpty {
                 self.pendingDownloads.removeFirst()
             }
+
+            // download next flight log
             self.downloadNextLog(toDirectory: directory, downloader: downloader)
+
         }
     }
 }

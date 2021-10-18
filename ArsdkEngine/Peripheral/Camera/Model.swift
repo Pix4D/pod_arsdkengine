@@ -32,7 +32,7 @@ import SdkCore
 
 /// Model for camera
 @objc(GSModel)
-public enum Model: Int, CustomStringConvertible {
+public enum Model: Int, CustomStringConvertible, CaseIterable {
     /// Main, usually front, camera
     case main
     ///  Thermal camera, for photo and/or video.
@@ -54,7 +54,10 @@ public enum Model: Int, CustomStringConvertible {
         case .main: return .main
         case .thermal: return .thermal
         case .thermalBlended: return .blendedThermal
-        case .sdkCoreUnknown: return nil
+        case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
+            return nil
         }
     }
 }

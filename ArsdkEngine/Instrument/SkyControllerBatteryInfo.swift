@@ -30,7 +30,7 @@
 import Foundation
 import GroundSdk
 
-/// Battery info component controller for SkyController messages based drones
+/// Battery info component controller for SkyController messages based remote controls.
 class SkyControllerBatteryInfo: DeviceComponentController {
 
     /// Battery info component

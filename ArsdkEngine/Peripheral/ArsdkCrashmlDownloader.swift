@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// CrashML downloader delegate
-protocol ArsdkCrashmlDownloaderDelegate: class {
+protocol ArsdkCrashmlDownloaderDelegate: AnyObject {
     /// Configure the delegate
     ///
     /// - Parameter downloader: the downloader in charge
@@ -132,7 +132,7 @@ class ArsdkCrashmlDownloader: DeviceComponentController {
 
     /// Tells whether downloading a report containing user-related information is allowed.
     ///
-    ///- Note: A report can contain user information, if a accountID has been set at a date earlier than the report
+    /// - Note: A report can contain user information, if a accountID has been set at a date earlier than the report
     /// date.
     ///
     /// - Parameter reportDate: date of the report

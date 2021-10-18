@@ -68,6 +68,8 @@ class FollowFeatureTrackingPilotingItf: ActivablePilotingItfController {
                     returnSet.insert(.targetHorizontalSpeedKO)
                     returnSet.insert(.targetVerticalSpeedKO)
                 case .sdkCoreUnknown:
+                    fallthrough
+                @unknown default:
                     ULog.w(.tag, "Unknown ArsdkFeatureFollowMeInputBitField, skipping this value.")
                 }
             }
@@ -128,7 +130,7 @@ class FollowFeatureTrackingPilotingItf: ActivablePilotingItfController {
     /// Internal storage for qualityIssues
     private var improvementsStorage = IssuesStorage()
 
-    /// true or false if the Tracking Is Running (the interface should be .active)
+    /// Whether tracking is running (the interface should be .active)
     ///
     /// - Note: subclasses must set this value
     var trackingIsRunning = false {
@@ -168,8 +170,10 @@ class FollowFeatureTrackingPilotingItf: ActivablePilotingItfController {
     }
 
     override func didConnect() {
-        updateState()
-        pilotingItf.publish()
+        if !supportedArsdkModes.isEmpty {
+            updateState()
+            pilotingItf.publish()
+        }
     }
 
     override func requestActivation() {
@@ -294,6 +298,8 @@ extension FollowFeatureTrackingPilotingItf: ArsdkFeatureArdrone3PilotingstateCal
             isFlying = true
 
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown flying state, skipping this event.")
             return

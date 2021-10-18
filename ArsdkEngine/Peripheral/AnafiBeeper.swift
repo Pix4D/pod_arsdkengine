@@ -85,6 +85,8 @@ extension AnafiBeeper: ArsdkFeatureArdrone3SoundstateCallback {
         case .playing:
             beeper.update(alertSoundPlaying: true).notifyUpdated()
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown BeeperState, skipping this event.")
         }

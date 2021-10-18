@@ -43,17 +43,21 @@ class FtpFlightLogDownloaderDelegate: ArsdkFlightLogDownloaderDelegate {
     func reset(downloader: ArsdkFlightLogDownloader) { }
 
     func download(toDirectory directory: URL, downloader: ArsdkFlightLogDownloader) -> Bool {
-        guard currentRequest == nil else {
+        guard currentRequest == nil, let flightLogStorage = downloader.flightLogStorage else {
             return false
         }
 
         currentRequest = downloader.deviceController.downloadFlightLog(
-            path: downloader.flightLogStorage.workDir.path,
+            path: flightLogStorage.workDir.path,
             progress: { [weak self] file, status in
                 if status == .ok, let `self` = self {
                     self.downloadCount += 1
                     downloader.flightLogDownloader.update(downloadedCount: self.downloadCount).notifyUpdated()
-                    downloader.flightLogStorage.notifyFlightLogReady(flightLogUrl: URL(fileURLWithPath: file))
+                    let filePath = URL(fileURLWithPath: file)
+                    flightLogStorage.notifyFlightLogReady(flightLogUrl: filePath)
+                    let deviceModel = ((downloader.deviceController as? DroneController) != nil) ? "drone" : "ctrl"
+                    GroundSdkCore.logEvent(message: "EVT:LOGS;event='download';source='\(deviceModel)';" +
+                        "file='\(filePath.lastPathComponent)'")
                 }
             },
             completion: { status in

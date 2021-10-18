@@ -602,6 +602,8 @@ extension MapperVirtualGamepad: ArsdkFeatureMapperCallback {
                     case .release:
                         state = .released
                     case .sdkCoreUnknown:
+                        fallthrough
+                    @unknown default:
                         // don't change anything if value is unknown
                         ULog.w(.tag, "Unknown button event, skipping this event.")
                         return
@@ -722,6 +724,8 @@ extension MapperVirtualGamepad: ArsdkFeatureMapperCallback {
                 case .expo4:
                     interpolator = .strongestExponential
                 case .sdkCoreUnknown:
+                    fallthrough
+                @unknown default:
                     // don't change anything if value is unknown
                     ULog.w(.mapperTag, "Unknown expo, skipping this event.")
                     return

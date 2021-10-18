@@ -34,7 +34,7 @@ import GroundSdk
 private let thumbnailCacheSize = 4 * 1024 * 1024
 
 /// Media store delegate
-protocol MediaStoreDelegate: class {
+protocol MediaStoreDelegate: AnyObject {
 
     /// Media store instance
     var mediaStore: MediaStoreCore! { get set }
@@ -62,6 +62,15 @@ protocol MediaStoreDelegate: class {
     /// - Returns: a request that can be canceled
     func browse(completion: @escaping (_ medias: [MediaItemCore]) -> Void) -> CancelableCore?
 
+    /// Get the list of the medias on the drone
+    ///
+    /// - Parameters:
+    ///   - storage: the storage to browse
+    ///   - completion: closure that will be called when browsing did finish
+    ///   - medias: list of the medias available on the device
+    /// - Returns: a request that can be canceled
+    func browse(storage: StorageType?, completion: @escaping (_ medias: [MediaItemCore]) -> Void) -> CancelableCore?
+
     /// Download the thumbnail of a given media.
     ///
     /// - Parameters:
@@ -71,7 +80,8 @@ protocol MediaStoreDelegate: class {
     /// - Returns: a request that can be canceled
     func downloadThumbnail(for owner: MediaStoreThumbnailCacheCore.ThumbnailOwner,
                            completion: @escaping (_ thumbnailData: Data?) -> Void) -> CancelableCore?
-    /// Download a resource
+
+    /// Download a resource.
     ///
     /// - Parameters:
     ///   - resource: resource to download
@@ -79,12 +89,24 @@ protocol MediaStoreDelegate: class {
     ///   - progress: progress callback
     ///   - progressValue: the progress value, from 0 to 100
     ///   - completion: completion callback
-    ///   - fileUrl: the url of the downloaded file. Nil if an error occurred.
+    ///   - fileUrl: the url of the downloaded file. `nil` if an error occurred
     /// - Returns: a request that can be canceled
     func download(
         resource: MediaItemResourceCore, destDirectoryPath: String,
         progress: @escaping (_ progressValue: Int) -> Void,
         completion: @escaping (_ fileUrl: URL?) -> Void) -> CancelableCore?
+
+    /// Download a resource signature.
+    ///
+    /// - Parameters:
+    ///   - resource: resource for which to download signature
+    ///   - destDirectoryPath: download destination path
+    ///   - completion: completion callback
+    ///   - signatureUrl: the url of the downloaded signature. `nil` if an error occurred
+    /// - Returns: a request that can be canceled
+    func downloadSignature(
+        resource: MediaItemResourceCore, destDirectoryPath: String,
+        completion: @escaping (_ signatureUrl: URL?) -> Void) -> CancelableCore?
 
     /// Delete a media
     ///
@@ -204,6 +226,15 @@ extension ArsdkMediaStore: MediaStoreBackend {
         return delegate.browse(completion: completion)
     }
 
+    /// Browse medias using a storage type.
+    ///
+    /// - Parameter storage: the storage where to list Medias
+    /// - Parameter completion: closure called when the request is terminated
+    /// - Returns: browse request, or nil if there is an error
+    func browse(storage: StorageType?, completion: @escaping ([MediaItemCore]) -> Void) -> CancelableCore? {
+        return delegate.browse(storage: storage, completion: completion)
+    }
+
     /// Download a thumbnail
     ///
     /// - Parameters:
@@ -270,10 +301,10 @@ extension ArsdkMediaStore: MediaStoreBackend {
         }
 
         /// Notify progress completion with fileUrl
-        func notifyProgressCompletion(currentMedia: MediaItem, fileUrl: URL) {
+        func notifyProgressCompletion(currentMedia: MediaItem, fileUrl: URL, signatureUrl: URL? = nil) {
             progress(MediaDownloaderCore(
                 mediaResourceListIterator: resourcesIterator, currentFileProgress: 1.0, status: .fileDownloaded,
-                currentMedia: currentMedia, fileUrl: fileUrl))
+                currentMedia: currentMedia, fileUrl: fileUrl, signatureUrl: signatureUrl))
         }
 
         /// Notify progress with an error
@@ -324,10 +355,14 @@ extension ArsdkMediaStore: MediaStoreBackend {
                         task.request = nil
                         if let fileUrl = fileUrl {
                             processDownloadedResource(media: mediaResource.media, fileUrl: fileUrl)
-                            notifyProgressCompletion(currentMedia: mediaResource.media, fileUrl: fileUrl)
-                            downloadNextResource()
+                            if mediaResource.resource.signed {
+                                downloadResourceSignature(mediaResource: mediaResource, fileUrl: fileUrl)
+                            } else {
+                                notifyProgressCompletion(currentMedia: mediaResource.media, fileUrl: fileUrl)
+                                downloadNextResource()
+                            }
                         } else if !task.canceled {
-                            ULog.w(.ctrlTag, "Error downloading \(String(describing: fileUrl?.path))")
+                            ULog.w(.ctrlTag, "Error downloading media resource")
                             notifyProgressError(currentMedia: mediaResource.media)
                         }
                 })
@@ -354,6 +389,39 @@ extension ArsdkMediaStore: MediaStoreBackend {
                     ULog.d(.ctrlTag, "media download terminated")
                     notifyProgressTerminated()
                 }
+            }
+        }
+
+        /// Download media resource signature
+        func downloadResourceSignature(mediaResource: (media: MediaItemCore, resource: MediaItemResourceCore),
+                                       fileUrl: URL) {
+            guard !task.canceled else {
+                // don't do anything if the request has been canceled
+                return
+            }
+
+            // request download
+            let req = delegate.downloadSignature(
+                resource: mediaResource.resource, destDirectoryPath: destDirectoryPath,
+                completion: { signatureUrl in
+                    task.request = nil
+                    if signatureUrl == nil {
+                        ULog.w(.ctrlTag, "Error downloading media resource signature")
+                    }
+                    if !task.canceled {
+                        notifyProgressCompletion(currentMedia: mediaResource.media, fileUrl: fileUrl,
+                                                 signatureUrl: signatureUrl)
+                        downloadNextResource()
+                    }
+            })
+            // request created, update client request and notify progress
+            if let req = req {
+                // store current low level request to cancel
+                task.request = req
+            } else {
+                // error sending request
+                ULog.d(.ctrlTag, "media download error sending request, skipping media")
+                notifyProgressError(currentMedia: mediaResource.media)
             }
         }
 

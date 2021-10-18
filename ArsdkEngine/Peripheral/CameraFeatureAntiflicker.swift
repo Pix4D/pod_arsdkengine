@@ -33,24 +33,18 @@ import GroundSdk
 /// Antiflicker component controller for camera feature message based drones
 class CameraFeatureAntiflicker: AntiflickerController {
 
-    /// Send mode command. Subclass must override this function to send the command
+    /// Sends mode command.
     ///
     /// - Parameters:
     ///   - mode: requested mode.
-    ///   - locationBasedValue: if mode is auto, the corresponding value set from current location if available.
     /// - Returns: true if the command has been sent
-    override func sendModeCommand(_ mode: AntiflickerMode, locationBasedValue: AntiflickerValue? = nil) -> Bool {
-        switch mode {
-        case .off, .mode50Hz, .mode60Hz:
-            sendCommand(ArsdkFeatureCamera.setAntiflickerModeEncoder(mode: mode.arsdkValue!))
-            return true
-        case .auto:
-            if let locationBasedValue = locationBasedValue, antiflicker.value != locationBasedValue {
-                sendCommand(ArsdkFeatureCamera.setAntiflickerModeEncoder(mode: locationBasedValue.arsdkValue!))
-                return true
-            }
+    override func sendModeCommand(_ mode: AntiflickerMode) -> Bool {
+        if mode == .auto && !droneSupportsAutoMode {
+            ULog.w(.cameraTag, "Cannot send auto antiflicker mode, drone does not support auto mode")
+            return false
         }
-        return false
+        sendCommand(ArsdkFeatureCamera.setAntiflickerModeEncoder(mode: mode.arsdkValue!))
+        return true
     }
 
     /// A command has been received

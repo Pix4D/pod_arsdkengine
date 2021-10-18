@@ -168,6 +168,8 @@ extension AnafiGuidedPilotingItf: ArsdkFeatureArdrone3PilotingstateCallback {
         case .headingDuring:
             orientationDirective = .headingStart(Double(heading))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             ULog.w(.tag, "Unknown onMoveToChanged orientation, skipping this event")
             return
         }
@@ -196,6 +198,8 @@ extension AnafiGuidedPilotingItf: ArsdkFeatureArdrone3PilotingstateCallback {
             }
 
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown onMoveToChanged status, skipping this event.")
             return
@@ -270,6 +274,8 @@ extension AnafiGuidedPilotingItf: ArsdkFeatureArdrone3PilotingeventCallback {
             }
 
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown ArsdkFeatureArdrone3PilotingeventMovebyendError status, skipping this event.")
             return

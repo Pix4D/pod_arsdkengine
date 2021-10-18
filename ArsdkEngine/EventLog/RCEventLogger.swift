@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Parrot Drones SAS
+// Copyright (C) 2020 Parrot Drones SAS
 //
 //    Redistribution and use in source and binary forms, with or without
 //    modification, are permitted provided that the following conditions
@@ -29,24 +29,49 @@
 
 import Foundation
 import GroundSdk
+import CoreLocation
 
-/// Firmware Updater event receiver specific for remote controls.
-class RcUpdaterEventReceiver: NSObject, UpdaterEventReceiver {
-    private var updateUnavailabilityReasonChanged: ((UpdaterUpdateUnavailabilityReason, Bool) -> Void)!
+/// Logger of device events.
+class RCEventLogger: DeviceEventLogger {
 
-    func configure(updateUnavailabilityReasonChanged: @escaping (UpdaterUpdateUnavailabilityReason, Bool) -> Void) {
-        self.updateUnavailabilityReasonChanged = updateUnavailabilityReasonChanged
+    /// Device software version.
+    private var softwareVersion: String?
+
+    /// Device hardware version.
+    private var hardwareVersion: String?
+
+    /// Serial number high part.
+    private var serialNumber: String?
+
+    override public func didConnect() {
+        if let softwareVersion = softwareVersion, let hardwareVersion = hardwareVersion,
+            let serialNumber = serialNumber {
+            eventLog.log("EVT:CONTROLLER;event='connected';" +
+                "model_id='\(String(format: "%04x", device.deviceModel.internalId))';" +
+                "sw_version='\(softwareVersion)';hw_version='\(hardwareVersion)'")
+            eventLog.log("EVTS:CONTROLLER;serial='\(serialNumber)'")
+        }
     }
 
-    func didReceiveCommand(_ command: OpaquePointer) {
-        if ArsdkCommand.getFeatureId(command) == kArsdkFeatureSkyctrlSkycontrollerstateUid {
-            ArsdkFeatureSkyctrlSkycontrollerstate.decode(command, callback: self)
+    override public func didDisconnect() {
+        eventLog.log("EVT:CONTROLLER;event='disconnected'")
+    }
+
+    override public func onCommandReceived(command: OpaquePointer) {
+        if ArsdkCommand.getFeatureId(command) == kArsdkFeatureSkyctrlSettingsstateUid {
+            ArsdkFeatureSkyctrlSettingsstate.decode(command, callback: self)
         }
     }
 }
 
-extension RcUpdaterEventReceiver: ArsdkFeatureSkyctrlSkycontrollerstateCallback {
-    func onBatteryChanged(percent: UInt) {
-        updateUnavailabilityReasonChanged(.notEnoughBattery, percent < 40)
+/// Callbacks called when a command of the feature ArsdkFeatureSkyctrlSettingsstate is decoded.
+extension RCEventLogger: ArsdkFeatureSkyctrlSettingsstateCallback {
+    func onProductVersionChanged(software: String!, hardware: String!) {
+        self.softwareVersion = software
+        self.hardwareVersion = hardware
+    }
+
+    func onProductSerialChanged(serialnumber: String!) {
+        self.serialNumber = serialnumber
     }
 }

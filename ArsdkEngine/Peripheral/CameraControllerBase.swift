@@ -1208,7 +1208,7 @@ class CameraControllerBase: CameraBackend {
         if let deviceStore = deviceStore, let presetStore = presetStore {
             for setting in droneSettings {
                 switch setting {
-                case .mode (let mode):
+                case .mode(let mode):
                     presetStore.writeIfNew(key: setting.key, value: mode)
                 case .hdr(let hdr):
                     presetStore.writeIfNew(key: setting.key, value: hdr)
@@ -1279,7 +1279,7 @@ class CameraControllerBase: CameraBackend {
     private func applyCameraModePreset() {
         for setting in droneSettings {
             switch setting {
-            case .mode (let mode):
+            case .mode(let mode):
                 if let preset: CameraMode = presetStore?.read(key: setting.key) {
                     if preset != mode {
                         _ = sendCameraModeCommand(preset)
@@ -1395,7 +1395,7 @@ class CameraControllerBase: CameraBackend {
         // iterate settings received during the connection
         for setting in droneSettings {
             switch setting {
-            case .autoRecord (let autoRecord):
+            case .autoRecord(let autoRecord):
                 if let preset: Bool = presetStore?.read(key: setting.key) {
                     if preset != autoRecord {
                         _ = sendAutoRecordCommand(preset)
@@ -2645,9 +2645,9 @@ extension CameraRecordingResolution: StorableEnum {
 
 extension CameraRecordingFramerate: StorableEnum {
     static let storableMapper = Mapper<CameraRecordingFramerate, String>([
-        .fps8_6: "fps8_6",
+        .fps8_6: "8.6",
         .fps9: "9",
-        .fps10: "fps10",
+        .fps10: "10",
         .fps15: "15",
         .fps20: "20",
         .fps24: "24",

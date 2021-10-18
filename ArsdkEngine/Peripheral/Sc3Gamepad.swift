@@ -221,6 +221,8 @@ extension Sc3Gamepad: SpecializedGamepadBackend {
             case .release:
                 state = .released
             case .sdkCoreUnknown:
+                fallthrough
+            @unknown default:
                 // don't change anything if value is unknown
                 ULog.w(.tag, "Unknown button event type, skipping this event.")
                 return

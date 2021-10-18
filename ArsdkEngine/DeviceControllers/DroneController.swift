@@ -31,6 +31,22 @@ import Foundation
 import GroundSdk
 import CoreLocation
 
+/// Gps command supported enum
+public enum GpsCommandSupported: Int, CustomStringConvertible {
+    /// gps command supported
+    case gps
+    /// gps_v2 command supported
+    case gps_v2
+
+    /// Debug description.
+    public var description: String {
+        switch self {
+        case .gps: return "gps"
+        case .gps_v2: return "gps_v2"
+        }
+    }
+}
+
 /// Device controller for a drone.
 class DroneController: DeviceController {
 
@@ -77,6 +93,12 @@ class DroneController: DeviceController {
         return super.dataSyncAllowed && isLanded
     }
 
+    /// Gps command is supported (capabilities were received)
+    private var gpsCommandSupported = Set<GpsCommandSupported>()
+
+    /// Bitfield of available data
+    private var availableData: UInt?
+
     /// Constructor
     ///
     /// - Parameters:
@@ -109,6 +131,9 @@ class DroneController: DeviceController {
         getAllStatesEncoder = ArsdkFeatureCommonCommon.allStatesEncoder()
 
         ephemerisUtility = engine.utilities.getUtility(Utilities.ephemeris)
+        if let eventLogger = engine.utilities.getUtility(Utilities.eventLogger) {
+            deviceEventLogger = DroneEventLogger(eventLog: eventLogger, engine: self.engine, device: self.device)
+        }
     }
 
     /// Called back when the current piloting command sent to the drone changes.
@@ -120,16 +145,41 @@ class DroneController: DeviceController {
         }
     }
 
-    /// Create a video stream instance from a url.
+    /// Creates a video live stream source.
+    ///
+    /// - Parameter cameraType: stream camera type
+    /// - Returns: a new instance of a live stream source
+    func createVideoSourceLive(cameraType: ArsdkSourceLiveCameraType) -> ArsdkSourceLive? {
+        if let backend = backend {
+            return backend.createVideoSourceLive(cameraType: cameraType)
+        } else {
+            ULog.w(.ctrlTag, "createVideoSourceLive called without backend")
+        }
+        return nil
+    }
+
+    /// Creates a media stream source.
     ///
     /// - Parameters:
     ///    - url: stream url
-    ///    - track: stream track
-    ///    - listener: the listener that should be called for stream events
-    /// - Returns: a new instance of a stream or null if an error happened
-    func createVideoStream(url: String, track: String, listener: SdkCoreStreamListener) -> ArsdkStream? {
+    ///    - trackName: stream track name
+    /// - Returns: a new instance of a media stream source
+    func createVideoSourceMedia(url: String, trackName: String?) -> ArsdkSourceMedia? {
         if let backend = backend {
-            return backend.createVideoStream(url: url, track: track, listener: listener)
+            return backend.createVideoSourceMedia(url: url, trackName: trackName)
+        } else {
+            ULog.w(.ctrlTag, "createVideoSourceMedia called without backend")
+        }
+        return nil
+    }
+
+    /// Create a video stream instance.
+    ///
+    /// - Parameter listener: the listener that should be called for stream events
+    /// - Returns: a new instance of a stream
+    func createVideoStream(listener: ArsdkStreamListener) -> ArsdkStream? {
+        if let backend = backend {
+            return backend.createVideoStream(listener: listener)
         } else {
             ULog.w(.ctrlTag, "createVideoStream called without backend")
         }
@@ -166,7 +216,6 @@ class DroneController: DeviceController {
     override func protocolDidConnect() {
         pilotingItfActivationController.didConnect()
         super.protocolDidConnect()
-
         /// Utility for device's location services.
         systemPositionUtility = engine.utilities.getUtility(Utilities.systemPosition)
         if let systemPositionUtility = systemPositionUtility {
@@ -209,15 +258,21 @@ class DroneController: DeviceController {
         userBarometerMonitor?.stop()
         userBarometerMonitor = nil
 
+        gpsCommandSupported.removeAll()
+        availableData = nil
         pilotingItfActivationController.didDisconnect()
         super.protocolDidDisconnect()
+
+        if let eventLogger = engine.utilities.getUtility(Utilities.eventLogger) {
+            eventLogger.newSession()
+        }
     }
 
     /// A command has been received
     ///
     /// - Parameter command: received command
     override func protocolDidReceiveCommand(_ command: OpaquePointer) {
-
+        deviceEventLogger?.onCommandReceived(command: command)
         if ArsdkCommand.getFeatureId(command) == kArsdkFeatureCommonSettingsstateUid {
             ArsdkFeatureCommonSettingsstate.decode(command, callback: self)
         } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureCommonCommonstateUid {
@@ -226,6 +281,8 @@ class DroneController: DeviceController {
             ArsdkFeatureCommonNetworkevent.decode(command, callback: self)
         } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureSkyctrlCommoneventstateUid {
             ArsdkFeatureSkyctrlCommoneventstate.decode(command, callback: self)
+        } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureControllerInfoUid {
+            ArsdkFeatureControllerInfo.decode(command, callback: self)
         }
 
         super.protocolDidReceiveCommand(command)
@@ -248,28 +305,71 @@ class DroneController: DeviceController {
         // converts speed and cource in north / east values
         var northSpeed = 0.0
         var eastSpeed = 0.0
-        // CLLocation doc: A negative value indicates an invalid speed or an invalid course
-        if newLocation.speed > 0 && newLocation.course > 0 {
+        var speedAccuracy = 0.0
+        var availableDataBitfield: UInt = (Bitfield<ArsdkFeatureControllerInfoAvailableData>.of(.amslAltitude,
+            .altitudeAccuracy))
+         // CLLocation doc: A negative value indicates an invalid speed or an invalid course
+        if newLocation.speed >= 0 && newLocation.course >= 0 {
             let courseRad = newLocation.course.toRadians()
             northSpeed = cos(courseRad) * newLocation.speed
             eastSpeed = sin(courseRad) * newLocation.speed
+            speedAccuracy = newLocation.speedAccuracy
+            availableDataBitfield = availableDataBitfield
+                | Bitfield<ArsdkFeatureControllerInfoAvailableData>.of(.northVelocity, .eastVelocity, .velocityAccuracy)
         }
-        // send command :
-        //        - Parameter latitude: Latitude of the controller (in deg)
-        //        - Parameter longitude: Longitude of the controller (in deg)
-        //        - Parameter altitude: Altitude of the controller (in meters, according to sea level)
-        //        - Parameter horizontal_accuracy: Horizontal accuracy (in meter)
-        //        - Parameter vertical_accuracy: Vertical accuracy (in meter)
-        //        - Parameter north_speed: North speed (in meter per second)
-        //        - Parameter east_speed: East speed (in meter per second)
-        //        - Parameter down_speed: Vertical speed (in meter per second) (down is positive)
-        //          -> force 0 for downSpeed
-        //        - Parameter timestamp: Timestamp of the gps info
-        sendCommand(ArsdkFeatureControllerInfo.gpsEncoder(
-            latitude: newLocation.coordinate.latitude, longitude: newLocation.coordinate.longitude,
-            altitude: Float(newLocation.altitude), horizontalAccuracy: Float( newLocation.horizontalAccuracy),
-            verticalAccuracy: Float(newLocation.verticalAccuracy), northSpeed: Float(northSpeed),
-            eastSpeed: Float(eastSpeed), downSpeed: 0, timestamp: newLocation.timestamp.timeIntervalSince1970 * 1000))
+
+        if gpsCommandSupported.contains(.gps_v2) {
+            // Send available data to drone.
+            if availableData != availableDataBitfield {
+                availableData = availableDataBitfield
+                sendCommand(ArsdkFeatureControllerInfo.gpsV2AvailableDataEncoder(source: .main,
+                    availableDataBitField: availableData!))
+            }
+
+            // send command :
+            //        - Parameter source: source of data. In this case it is .main
+            //        - Parameter latitude: Latitude of the controller (in deg)
+            //        - Parameter longitude: Longitude of the controller (in deg)
+            //        - Parameter amslAltitude: Altitude of the controller (in meters, according to sea level)
+            //        - Parameter wgs84Altitude: Altitude of the controller (in meters, according to sea level)
+            //        - Parameter latitudeAccuracy: Latitude accuracy / sqrt(2) (in meter)
+            //        - Parameter longitudeAccuracy: Longitude accuracy / sqrt(2) (in meter)
+            //        - Parameter altitudeAccuracy: Vertical accuracy (in meter)
+            //        - Parameter northVelocity: North speed (in meter per second)
+            //        - Parameter eastVelocity: East speed (in meter per second)
+            //        - Parameter upVelocity: Vertical speed (in meter per second) (down is positive)
+            //          -> force 0 for downSpeed
+            //        - Parameter velocityAccuracy: Velocity accuracy
+            //        - Parameter timestamp: Timestamp of the gps info
+            sendCommand(ArsdkFeatureControllerInfo.gpsV2Encoder(
+                source: .main,
+                latitude: newLocation.coordinate.latitude, longitude: newLocation.coordinate.longitude,
+                amslAltitude: Float(newLocation.altitude), wgs84Altitude: 0,
+                latitudeAccuracy: Float(newLocation.horizontalAccuracy / 2.0.squareRoot()),
+                longitudeAccuracy: Float(newLocation.horizontalAccuracy / 2.0.squareRoot()),
+                altitudeAccuracy: Float(newLocation.verticalAccuracy), northVelocity: Float(northSpeed),
+                eastVelocity: Float(eastSpeed), upVelocity: 0, velocityAccuracy: Float(speedAccuracy),
+                numberOfSatellites: 0,
+                timestamp: UInt64(newLocation.timestamp.timeIntervalSince1970 * 1000)))
+        } else {
+            // send command :
+            //        - Parameter latitude: Latitude of the controller (in deg)
+            //        - Parameter longitude: Longitude of the controller (in deg)
+            //        - Parameter altitude: Altitude of the controller (in meters, according to sea level)
+            //        - Parameter horizontalAccuracy: Horizontal accuracy (in meter)
+            //        - Parameter verticalAccuracy: Vertical accuracy (in meter)
+            //        - Parameter northSpeed: North speed (in meter per second)
+            //        - Parameter eastSpeed: East speed (in meter per second)
+            //        - Parameter downSpeed: Vertical speed (in meter per second) (down is positive)
+            //          -> force 0 for downSpeed
+            //        - Parameter timestamp: Timestamp of the gps info
+            sendCommand(ArsdkFeatureControllerInfo.gpsEncoder(
+                latitude: newLocation.coordinate.latitude, longitude: newLocation.coordinate.longitude,
+                altitude: Float(newLocation.altitude), horizontalAccuracy: Float(newLocation.horizontalAccuracy),
+                verticalAccuracy: Float(newLocation.verticalAccuracy), northSpeed: Float(northSpeed),
+                eastSpeed: Float(eastSpeed), downSpeed: 0,
+                timestamp: newLocation.timestamp.timeIntervalSince1970 * 1000))
+        }
     }
 }
 
@@ -306,6 +406,12 @@ extension DroneController: ArsdkFeatureCommonCommonstateCallback {
             transitToNextConnectionState()
         }
     }
+
+    func onBootId(bootid: String!) {
+        if let eventLogger = engine.utilities.getUtility(Utilities.eventLogger) {
+            eventLogger.update(bootId: bootid)
+        }
+    }
 }
 
 /// Network event dispatcher, used to receive onDisconnection
@@ -326,4 +432,33 @@ extension DroneController: ArsdkFeatureSkyctrlCommoneventstateCallback {
             _ = doDisconnect(cause: .userRequest)
         }
     }
+}
+
+extension DroneController: ArsdkFeatureControllerInfoCallback {
+
+    func onCapabilities(supportedCommandBitField: UInt) {
+        gpsCommandSupported = GpsCommandSupported.createSetFrom(bitField: supportedCommandBitField)
+    }
+}
+
+/// Extension that add conversion from/to arsdk enum
+extension GpsCommandSupported: ArsdkMappableEnum {
+
+    /// Create set of gps supported commands from all value set in a bitfield
+    ///
+    /// - Parameter bitField: arsdk bitfield
+    /// - Returns: set containing all gps command supported in bitField
+    static func createSetFrom(bitField: UInt) -> Set<GpsCommandSupported> {
+        var result = Set<GpsCommandSupported>()
+        ArsdkFeatureControllerInfoSupportedCommandBitField.forAllSet(in: bitField) { arsdkValue in
+            if let value = GpsCommandSupported(fromArsdk: arsdkValue) {
+                result.insert(value)
+            }
+        }
+        return result
+    }
+
+    static let arsdkMapper = Mapper<GpsCommandSupported, ArsdkFeatureControllerInfoSupportedCommand>([
+        .gps: .gps,
+        .gps_v2: .gpsV2])
 }

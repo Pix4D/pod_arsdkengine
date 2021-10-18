@@ -124,6 +124,8 @@ extension AnafiPilotingControl: ArsdkFeaturePilotingStyleCallback {
         case .cameraOperated:
             pilotingControl.update(behaviour: .cameraOperated).notifyUpdated()
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown ArsdkFeaturePilotingStyleStyle, skipping this event.")
             return

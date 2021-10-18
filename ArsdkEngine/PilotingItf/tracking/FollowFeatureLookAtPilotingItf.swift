@@ -32,6 +32,10 @@ import GroundSdk
 
 /// LookAt piloting interface component controller for the Follow feature based drones
 class FollowFeatureLookAtPilotingItf: FollowFeatureTrackingPilotingItf, LookAtPilotingItfBackend {
+    func set(lookAtMode newLookAtMode: LookAtMode) -> Bool {
+        /// there is only one mode .lookAt
+        return false
+    }
 
     /// The piloting interface from which this object is the delegate
     private var lookAtPilotingItf: LookAtPilotingItfCore {

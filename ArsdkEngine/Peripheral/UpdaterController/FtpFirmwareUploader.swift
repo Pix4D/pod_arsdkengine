@@ -65,6 +65,8 @@ class FtpFirmwareUploader: UpdaterFirmwareUploader {
                         updateEndStatus(.canceled)
                     case .failed,
                          .aborted:
+                        fallthrough
+                    @unknown default:
                         updateEndStatus(.failed)
                     }
             })

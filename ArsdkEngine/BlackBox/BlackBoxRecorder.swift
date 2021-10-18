@@ -39,6 +39,9 @@ class BlackBoxRecorder {
     /// Live black box contexts, by master uid
     private var sessions: [String: BlackBoxContext] = [:]
 
+    /// Blackbox circular buffers capacity, in seconds.
+    private var blackBoxBufferCapacity: Int
+
     /// Constructor
     ///
     /// - Parameters:
@@ -46,6 +49,7 @@ class BlackBoxRecorder {
     ///   - blackBoxStorage: black box storage utility
     init(engine: ArsdkEngine, blackBoxStorage: BlackBoxStorageCore) {
         self.blackBoxStorage = blackBoxStorage
+        self.blackBoxBufferCapacity = GroundSdkConfig.sharedInstance.blackboxBufferCapacity ?? 60
     }
 
     /// Opens a session to record drone black box data
@@ -82,7 +86,7 @@ class BlackBoxRecorder {
     private func obtainContext(masterUid: String) -> BlackBoxContext {
         var session = sessions[masterUid]
         if session == nil {
-            session = BlackBoxContext(blackBoxReadyCb: { blackBox in
+            session = BlackBoxContext(blackBoxBufferCapacity: blackBoxBufferCapacity, blackBoxReadyCb: { blackBox in
                 self.blackBoxStorage.notifyBlackBoxDataReady(blackBoxData: blackBox)
             }, closeCb: {
                 self.sessions[masterUid] = session

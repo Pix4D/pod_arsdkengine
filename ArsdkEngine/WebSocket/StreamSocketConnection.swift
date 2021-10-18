@@ -29,7 +29,7 @@
 
 import Foundation
 
-protocol StreamSocketConnectionDelegate: class {
+protocol StreamSocketConnectionDelegate: AnyObject {
     func streamSocketConnectionDidOpen(_ connection: StreamSocketConnection)
     func streamSocketConnectionHasData(_ connection: StreamSocketConnection, data: Data)
     func streamSocketConnectionHasError(_ connection: StreamSocketConnection)
@@ -110,8 +110,8 @@ class StreamSocketConnection: NSObject {
     /// Write all pending buffers or until output is full
     private func writeNextBuffers() {
         while let data = writeQueue.first, outputStream.hasSpaceAvailable {
-            let written = data.withUnsafeBytes { bytes in
-                return outputStream.write(bytes, maxLength: data.count)
+            let written = data.withUnsafeBytes {
+                return outputStream.write($0.bindMemory(to: UInt8.self).baseAddress!, maxLength: data.count)
             }
             if written < 0 {
                 return

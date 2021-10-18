@@ -194,6 +194,8 @@ extension WifiFeatureWifiAccessPoint: ArsdkFeatureWifiCallback {
         case .manual:
             selectionMode = .manual
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown wifi selection type, skipping this event.")
             return
@@ -210,6 +212,8 @@ extension WifiFeatureWifiAccessPoint: ArsdkFeatureWifiCallback {
         case .wpa2:
             wifiAccessPoint.update(security: .wpa2Secured).notifyUpdated()
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown wifi security type, skipping this event.")
             return
@@ -225,6 +229,8 @@ extension WifiFeatureWifiAccessPoint: ArsdkFeatureWifiCallback {
             case .wpa2 :
                 supportedModes.insert(.wpa2Secured)
             case .sdkCoreUnknown :
+                fallthrough
+            @unknown default:
                 ULog.w(.tag, "Unknown SupportedSecurityType, skipping this event.")
             }
         }
@@ -247,6 +253,8 @@ extension WifiFeatureWifiAccessPoint: ArsdkFeatureWifiCallback {
             self.environment = .outdoor
             wifiAccessPoint.update(availableChannels: outdoorChannels)
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown wifi environment, skipping this event.")
             return

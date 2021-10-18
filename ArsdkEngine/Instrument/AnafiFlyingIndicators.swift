@@ -58,8 +58,11 @@ class AnafiFlyingIndicators: DeviceComponentController {
     ///
     /// - Parameter command: received command
     override func didReceiveCommand(_ command: OpaquePointer) {
-        if ArsdkCommand.getFeatureId(command) == kArsdkFeatureArdrone3PilotingstateUid {
+        let featureId = ArsdkCommand.getFeatureId(command)
+        if featureId == kArsdkFeatureArdrone3PilotingstateUid {
             ArsdkFeatureArdrone3Pilotingstate.decode(command, callback: self)
+        } else if featureId == kArsdkFeatureHandLandUid {
+            ArsdkFeatureHandLand.decode(command, callback: self)
         }
     }
 
@@ -88,8 +91,29 @@ extension AnafiFlyingIndicators: ArsdkFeatureArdrone3PilotingstateCallback {
         case .emergencyLanding:
             flyingIndicator.update(state: .emergencyLanding)
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown flying state, skipping this event.")
+            return
+        }
+        flyingIndicator.notifyUpdated()
+    }
+}
+
+/// Hand land callback implementation
+extension AnafiFlyingIndicators: ArsdkFeatureHandLandCallback {
+    func onState(state: ArsdkFeatureHandLandState) {
+        switch state {
+        case .idle:
+            flyingIndicator.update(isHandLanding: false)
+        case .ongoing:
+            flyingIndicator.update(isHandLanding: true)
+        case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
+            // don't change anything if value is unknown
+            ULog.w(.tag, "Unknown hand land state, skipping this event.")
             return
         }
         flyingIndicator.notifyUpdated()

@@ -55,28 +55,28 @@ class AnafiAlarms: DeviceComponentController {
     /// hoveringDifficultiesNoGpsTooDark)
     private var droneHoveringAlarmLevel = (tooDark: Alarm.Level.off, tooHigh: Alarm.Level.off)
 
+    /// Disctionary of battery alarms.
+    private var batteryAlarms: [Alarm.Kind: Alarm.Level] = [:]
+
     /// Constructor
     ///
     /// - Parameter deviceController: device controller owning this component controller (weak)
     override init(deviceController: DeviceController) {
         super.init(deviceController: deviceController)
         self.alarms = AlarmsCore(store: deviceController.device.instrumentStore,
-                                 supportedAlarms: [.power, .motorCutOut, .userEmergency,
-                                                   .motorError, .batteryTooHot, .batteryTooCold,
-                                                   .hoveringDifficultiesNoGpsTooDark, .hoveringDifficultiesNoGpsTooHigh,
-                                                   .automaticLandingBatteryIssue, .wind, .verticalCamera,
-                                                   .strongVibrations, .magnetometerLowEarthField,
-                                                   .magnetometerPertubation, .unreliableControllerLocation,
-                                                   .headingLock])
+                                 supportedAlarms: [.threeMotorsFlight])
     }
 
     /// Drone is connected
     override func didConnect() {
+        super.didConnect()
         alarms.publish()
     }
 
     /// Drone is disconnected
     override func didDisconnect() {
+        super.didDisconnect()
+        alarms.update(level: .off, forAlarm: .threeMotorsFlight)
         alarms.unpublish()
     }
 
@@ -94,6 +94,12 @@ class AnafiAlarms: DeviceComponentController {
             ArsdkFeatureCommonCommonstate.decode(command, callback: self)
         } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureControllerInfoUid {
             ArsdkFeatureControllerInfo.decode(command, callback: self)
+        } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureMotorsUid {
+            ArsdkFeatureMotors.decode(command, callback: self)
+        } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureObstacleAvoidanceUid {
+            ArsdkFeatureObstacleAvoidance.decode(command, callback: self)
+        } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureAlarmsUid {
+            ArsdkFeatureAlarms.decode(command, callback: self)
         }
     }
 
@@ -128,6 +134,7 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
                 .update(level: .off, forAlarm: .userEmergency)
                 .update(level: .off, forAlarm: .magnetometerPertubation)
                 .update(level: .off, forAlarm: .magnetometerLowEarthField)
+                .update(level: .off, forAlarm: .inclinationTooHigh)
                 .notifyUpdated()
         case .cutOut:
             // remove only non-persistent alarms
@@ -135,16 +142,23 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
                 .update(level: .off, forAlarm: .userEmergency)
                 .update(level: .off, forAlarm: .magnetometerPertubation)
                 .update(level: .off, forAlarm: .magnetometerLowEarthField)
+                .update(level: .off, forAlarm: .inclinationTooHigh)
                 .notifyUpdated()
         case .tooMuchAngle:
-            // Nothing to do since we don't provide an alarm in the API for this alert
-            break
+            // remove only non-persistent alarms
+            alarms.update(level: .critical, forAlarm: .inclinationTooHigh)
+                .update(level: .off, forAlarm: .motorCutOut)
+                .update(level: .off, forAlarm: .userEmergency)
+                .update(level: .off, forAlarm: .magnetometerPertubation)
+                .update(level: .off, forAlarm: .magnetometerLowEarthField)
+                .notifyUpdated()
         case .user:
             // remove only non-persistent alarms
             alarms.update(level: .off, forAlarm: .motorCutOut)
                 .update(level: .critical, forAlarm: .userEmergency)
                 .update(level: .off, forAlarm: .magnetometerPertubation)
                 .update(level: .off, forAlarm: .magnetometerLowEarthField)
+                .update(level: .off, forAlarm: .inclinationTooHigh)
                 .notifyUpdated()
         case .criticalBattery, .almostEmptyBattery:
             if !batteryFeatureSupported {
@@ -153,6 +167,7 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
                     .update(level: .off, forAlarm: .userEmergency)
                     .update(level: .off, forAlarm: .magnetometerPertubation)
                     .update(level: .off, forAlarm: .magnetometerLowEarthField)
+                    .update(level: .off, forAlarm: .inclinationTooHigh)
                     .notifyUpdated()
             }
         case .lowBattery:
@@ -162,6 +177,7 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
                     .update(level: .off, forAlarm: .userEmergency)
                     .update(level: .off, forAlarm: .magnetometerPertubation)
                     .update(level: .off, forAlarm: .magnetometerLowEarthField)
+                    .update(level: .off, forAlarm: .inclinationTooHigh)
                     .notifyUpdated()
             }
         case .magnetoPertubation:
@@ -169,14 +185,18 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
             alarms.update(level: .off, forAlarm: .magnetometerLowEarthField)
             .update(level: .off, forAlarm: .motorCutOut)
             .update(level: .off, forAlarm: .userEmergency)
+            .update(level: .off, forAlarm: .inclinationTooHigh)
             .notifyUpdated()
         case .magnetoLowEarthField:
             alarms.update(level: .critical, forAlarm: .magnetometerLowEarthField)
             alarms.update(level: .off, forAlarm: .magnetometerPertubation)
             .update(level: .off, forAlarm: .motorCutOut)
             .update(level: .off, forAlarm: .userEmergency)
+            .update(level: .off, forAlarm: .inclinationTooHigh)
             .notifyUpdated()
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown alert state, skipping this event.")
             return
@@ -201,6 +221,8 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
                           forAlarm: .automaticLandingBatteryIssue)
                 .update(automaticLandingDelay: Double(delay))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             return
         }
         alarms.notifyUpdated()
@@ -225,6 +247,8 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
         case .critical:
             level = .critical
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             return
         }
         alarms.update(level: level, forAlarm: .wind).notifyUpdated()
@@ -240,6 +264,8 @@ extension AnafiAlarms: ArsdkFeatureArdrone3PilotingstateCallback {
         case .warning:
            level = .warning
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             return
         }
         alarms.update(level: level, forAlarm: .strongVibrations).notifyUpdated()
@@ -275,11 +301,21 @@ extension AnafiAlarms: ArsdkFeatureArdrone3SettingsstateCallback {
 extension AnafiAlarms: ArsdkFeatureBatteryCallback {
     func onAlert(alert: ArsdkFeatureBatteryAlert, level: ArsdkFeatureBatteryAlertLevel, listFlagsBitField: UInt) {
 
-        @discardableResult
-        func removeAllBatteryAlarms() -> AlarmsCore {
-            return alarms.update(level: .off, forAlarm: .power)
-                .update(level: .off, forAlarm: .batteryTooHot)
-                .update(level: .off, forAlarm: .batteryTooCold)
+        /// Resets dictionary of battery alarms.
+        func resetBatteryAlarms() {
+            batteryAlarms[.power] = .off
+            batteryAlarms[.batteryTooHot] = .off
+            batteryAlarms[.batteryTooCold] = .off
+            batteryAlarms[.batteryGaugeUpdateRequired] = .off
+            batteryAlarms[.batteryAuthenticationFailure] = .off
+        }
+
+        /// Updates alarms component with battery alarms and notifies update.
+        func updateBatteryAlarms() {
+            for (alarm, level) in batteryAlarms {
+                alarms.update(level: level, forAlarm: alarm)
+            }
+            alarms.notifyUpdated()
         }
 
         // declare that the drone supports the battery feature
@@ -287,8 +323,14 @@ extension AnafiAlarms: ArsdkFeatureBatteryCallback {
 
         if ArsdkFeatureGenericListFlagsBitField.isSet(.empty, inBitField: listFlagsBitField) {
             // remove all and notify
-            removeAllBatteryAlarms().notifyUpdated()
+            resetBatteryAlarms()
+            updateBatteryAlarms()
         } else {
+            // first, reset battery alarms
+            if ArsdkFeatureGenericListFlagsBitField.isSet(.first, inBitField: listFlagsBitField) {
+                resetBatteryAlarms()
+            }
+
             let alarm: Alarm.Kind?
             switch alert {
             case .powerLevel:
@@ -297,20 +339,21 @@ extension AnafiAlarms: ArsdkFeatureBatteryCallback {
                 alarm = .batteryTooHot
             case .tooCold:
                 alarm = .batteryTooCold
+            case .gaugeTooOld:
+                alarm = .batteryGaugeUpdateRequired
+            case .authenticationFailure:
+                alarm = .batteryAuthenticationFailure
             case .sdkCoreUnknown:
+                fallthrough
+            @unknown default:
                 alarm = nil
             }
 
             if let alarm = alarm {
                 if ArsdkFeatureGenericListFlagsBitField.isSet(.remove, inBitField: listFlagsBitField) {
                     // remove
-                    alarms.update(level: .off, forAlarm: alarm)
+                    batteryAlarms[alarm] = .off
                 } else {
-                    // first, remove all
-                    if ArsdkFeatureGenericListFlagsBitField.isSet(.first, inBitField: listFlagsBitField) {
-                        removeAllBatteryAlarms()
-                    }
-
                     let alarmLevel: Alarm.Level?
                     switch level {
                     case .none:
@@ -320,18 +363,19 @@ extension AnafiAlarms: ArsdkFeatureBatteryCallback {
                     case .critical:
                         alarmLevel = .critical
                     case .sdkCoreUnknown:
+                        fallthrough
+                    @unknown default:
                         alarmLevel = nil
                     }
 
                     if let alarmLevel = alarmLevel {
-                        // add
-                        alarms.update(level: alarmLevel, forAlarm: alarm)
+                        batteryAlarms[alarm] = alarmLevel
                     }
                 }
             }
             if ArsdkFeatureGenericListFlagsBitField.isSet(.last, inBitField: listFlagsBitField) {
-                // notify
-                alarms.notifyUpdated()
+                // update and notify
+                updateBatteryAlarms()
             }
         }
     }
@@ -358,5 +402,123 @@ extension AnafiAlarms: ArsdkFeatureControllerInfoCallback {
         let level: Alarm.Level = isValid == 1 ? .off : .warning
         alarms.update(level: level, forAlarm: .unreliableControllerLocation)
             .notifyUpdated()
+    }
+}
+
+extension AnafiAlarms: ArsdkFeatureMotorsCallback {
+    func onThreeMotorsFlightStarted(id: ArsdkFeatureMotorsMotorId, reason: ArsdkFeatureMotorsThreeMotorsReason) {
+        alarms.update(level: .critical, forAlarm: .threeMotorsFlight).notifyUpdated()
+    }
+
+    func onThreeMotorsFlightEnded() {
+        alarms.update(level: .off, forAlarm: .threeMotorsFlight).notifyUpdated()
+    }
+}
+
+extension AnafiAlarms: ArsdkFeatureObstacleAvoidanceCallback {
+    func onAlerts(alertsBitField: UInt) {
+        update(level: .warning, forAlarm: .highDeviation, ifAlert: .highDeviation, isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .droneStuck, ifAlert: .stuck, isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .obstacleAvoidanceDisabledStereoFailure, ifAlert: .stereoFailure,
+               isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .obstacleAvoidanceDisabledStereoLensFailure, ifAlert: .stereoLensFailure,
+               isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .obstacleAvoidanceDisabledGimbalFailure, ifAlert: .gimbalFailure,
+               isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .obstacleAvoidanceDisabledTooDark, ifAlert: .tooDark,
+               isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .obstacleAvoidanceDisabledEstimationUnreliable,
+               ifAlert: .estimationUnreliable, isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .obstacleAvoidanceDisabledCalibrationFailure, ifAlert: .calibrationFailure,
+               isSetIn: alertsBitField)
+        update(level: .warning, forAlarm: .obstacleAvoidancePoorGps, ifAlert: .poorGps, isSetIn: alertsBitField)
+        update(level: .warning, forAlarm: .obstacleAvoidanceStrongWind, ifAlert: .strongWind, isSetIn: alertsBitField)
+        update(level: .critical, forAlarm: .obstacleAvoidanceComputationalError, ifAlert: .computationalError,
+               isSetIn: alertsBitField)
+        update(level: .warning, forAlarm: .obstacleAvoidanceBlindMotionDirection, ifAlert: .blindMotionDirection,
+               isSetIn: alertsBitField)
+        alarms.notifyUpdated()
+    }
+
+    /// Sets the given alarm to the given level if the corresponding alert is set in the bitfield.
+    ///
+    /// - Parameters:
+    ///    - level: the level of the alarm
+    ///    - forAlarm: the kind of the alarm
+    ///    - ifAlert: the alert to check
+    ///    - isSetIn: the bitfield to check
+    private func update(level: Alarm.Level, forAlarm kind: Alarm.Kind,
+                        ifAlert alert: ArsdkFeatureObstacleAvoidanceAlert, isSetIn bitField: UInt) {
+        let newLevel = ArsdkFeatureObstacleAvoidanceAlertBitField.isSet(alert, inBitField: bitField) ? level : .off
+        alarms.update(level: newLevel, forAlarm: kind)
+    }
+}
+
+extension AnafiAlarms: ArsdkFeatureAlarmsCallback {
+    func onAlarms(type: ArsdkFeatureAlarmsType, state: ArsdkFeatureAlarmsState,
+                  listFlagsBitField: UInt) {
+        var newKind: Alarm.Kind?
+        var newLevel: Alarm.Level?
+        switch type {
+        case .userEmergency:
+            newKind = .userEmergency
+        case .motorCutout:
+            newKind = .motorCutOut
+        case .droneInclinationTooHigh:
+            newKind = .inclinationTooHigh
+        case .magnetoPerturbation:
+            newKind = .magnetometerPertubation
+        case .magnetoLowEarthField:
+            newKind = .magnetometerLowEarthField
+        case .horizontalGeofenceReached:
+            newKind = .horizontalGeofenceReached
+        case .verticalGeofenceReached:
+            newKind = .verticalGeofenceReached
+        case .sdkCoreUnknown:
+            break
+        @unknown default:
+            break
+        }
+
+        switch state {
+        case .off:
+            newLevel = .off
+        case .on:
+            newLevel = .critical
+        case .sdkCoreUnknown:
+            break
+        @unknown default:
+            break
+        }
+
+        guard let kind = newKind, let level = newLevel else {
+            return
+        }
+
+        if ArsdkFeatureGenericListFlagsBitField.isSet(.first, inBitField: listFlagsBitField) {
+            resetAlarms()
+            alarms.update(level: level, forAlarm: kind)
+        } else if ArsdkFeatureGenericListFlagsBitField.isSet(.empty, inBitField: listFlagsBitField) {
+            resetAlarms()
+            alarms.notifyUpdated()
+        } else if ArsdkFeatureGenericListFlagsBitField.isSet(.remove, inBitField: listFlagsBitField) {
+            alarms.update(level: .notAvailable, forAlarm: kind).notifyUpdated()
+        } else {
+            alarms.update(level: level, forAlarm: kind)
+        }
+        if ArsdkFeatureGenericListFlagsBitField.isSet(.last, inBitField: listFlagsBitField) {
+            alarms.notifyUpdated()
+        }
+    }
+
+    func resetAlarms() {
+        alarms.update(level: .notAvailable, forAlarm: .userEmergency)
+        alarms.update(level: .notAvailable, forAlarm: .motorCutOut)
+        alarms.update(level: .notAvailable, forAlarm: .inclinationTooHigh)
+
+        alarms.update(level: .notAvailable, forAlarm: .magnetometerPertubation)
+        alarms.update(level: .notAvailable, forAlarm: .magnetometerLowEarthField)
+        alarms.update(level: .notAvailable, forAlarm: .horizontalGeofenceReached)
+        alarms.update(level: .notAvailable, forAlarm: .verticalGeofenceReached)
     }
 }

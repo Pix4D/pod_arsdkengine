@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Parrot Drones SAS
+// Copyright (C) 2020 Parrot Drones SAS
 //
 //    Redistribution and use in source and binary forms, with or without
 //    modification, are permitted provided that the following conditions
@@ -29,47 +29,21 @@
 
 import Foundation
 
-/// Protocol that provides time information
-protocol TimeProviderProtocol {
-    /// Reference time interval
-    var timeInterval: TimeInterval { get }
-}
+/// Camera model.
+public enum Camera2Model: String, CustomStringConvertible, CaseIterable {
+    /// Main, usually front, camera.
+    case main
 
-/// Utility class that provides a time information
-///
-/// This utility class mainly exists for mocking purposes in tests.
-class TimeProvider {
-    /// Reference time interval.
-    ///
-    /// On default implementation, corresponds to the time interval since reference date.
-    static var timeInterval: TimeInterval {
-        return instance.timeInterval
-    }
+    /// Debug description.
+    public var description: String { rawValue }
 
-    /// Current TimeProvider singleton instance.
-    ///
-    /// Should only be set in order to mock a different behavior
-    static var instance: TimeProviderProtocol = DefaultTimeProvider()
-
-    /// Set back the instance to the default one.
-    static func setDefault() {
-        instance = DefaultTimeProvider()
-    }
-
-    /// Private constructor for utility class
-    private init() {}
-}
-
-/// Default implementation of the TimeProviderProtocol
-private class DefaultTimeProvider: TimeProviderProtocol {
-    /// Reference time interval.
-    /// Corresponds to the time interval since reference date.
-    var timeInterval: TimeInterval {
-        return Date.timeIntervalSinceReferenceDate
-    }
-
-    /// Private constructor
-    fileprivate init() {
-
+    static func from(model: Arsdk_Camera_CameraModel) -> Camera2Model? {
+        switch model {
+        case .main: return .main
+        case .UNRECOGNIZED:
+            fallthrough
+        @unknown default:
+            return nil
+        }
     }
 }

@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// flightData downloader delegate
-protocol ArsdkFlightDataDownloaderDelegate: class {
+protocol ArsdkFlightDataDownloaderDelegate: AnyObject {
     /// Configure the delegate
     ///
     /// - Parameter downloader: the downloader in charge

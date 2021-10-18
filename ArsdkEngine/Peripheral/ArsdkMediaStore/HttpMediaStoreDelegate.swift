@@ -70,6 +70,12 @@ class HttpMediaStoreDelegate: NSObject, MediaStoreDelegate {
         }
     }
 
+    func browse(storage: StorageType?, completion: @escaping ([MediaItemCore]) -> Void) -> CancelableCore? {
+        return mediaRestApi?.getMediaList(storage: storage, completion: { medias in
+            completion(medias ?? [])
+        })
+    }
+
     func downloadThumbnail(for owner: MediaStoreThumbnailCacheCore.ThumbnailOwner,
                            completion: @escaping (Data?) -> Void) -> CancelableCore? {
         switch owner {
@@ -86,11 +92,17 @@ class HttpMediaStoreDelegate: NSObject, MediaStoreDelegate {
 
     func download(resource: MediaItemResourceCore, destDirectoryPath: String,
                   progress: @escaping (_ progressValue: Int) -> Void,
-                  completion: @escaping (_ fileUrl: URL?) -> Void) -> CancelableCore? {
+                  completion: @escaping (URL?) -> Void) -> CancelableCore? {
 
         return mediaRestApi?.download(
             resource: resource, destDirectoryPath: destDirectoryPath,
             progress: progress, completion: completion)
+    }
+
+    func downloadSignature(resource: MediaItemResourceCore, destDirectoryPath: String,
+                           completion: @escaping (URL?) -> Void) -> CancelableCore? {
+        return mediaRestApi?.downloadSignature(resource: resource, destDirectoryPath: destDirectoryPath,
+                                               completion: completion)
     }
 
     func delete(media: MediaItemCore, completion: @escaping (Bool) -> Void) -> CancelableCore? {

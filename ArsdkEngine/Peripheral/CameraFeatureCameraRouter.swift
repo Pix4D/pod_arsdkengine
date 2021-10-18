@@ -855,9 +855,12 @@ extension CameraFeatureCameraRouter: ArsdkFeatureCameraCallback {
                 case .active:
                     cameraController.camera.update(recordingState: .started,
                                   startTime: Date(timeIntervalSince1970: Double(startTimestamp)/Double(1000)))
+                @unknown default:
+                    cameraController.camera.update(recordingState: .stopped)
                 }
 
             case .sdkCoreUnknown:  break
+            @unknown default: break
             }
             cameraController.camera.notifyUpdated()
             self.cameraControllers[camId] = cameraController
@@ -885,6 +888,7 @@ extension CameraFeatureCameraRouter: ArsdkFeatureCameraCallback {
             case .stoppedReconfigured:
                 cameraController.camera.update(recordingState: .stoppedForReconfiguration)
             case .sdkCoreUnknown:  break
+            @unknown default: break
             }
             cameraController.camera.notifyUpdated()
             self.cameraControllers[camId] = cameraController
@@ -904,8 +908,11 @@ extension CameraFeatureCameraRouter: ArsdkFeatureCameraCallback {
                     cameraController.camera.update(photoState: .stopped)
                 case .active:
                     cameraController.camera.update(photoState: .started)
+                @unknown default:
+                    cameraController.camera.update(photoState: .stopped)
                 }
-            case .sdkCoreUnknown:  break
+            case .sdkCoreUnknown: break
+            @unknown default: break
             }
             cameraController.camera.notifyUpdated()
             self.cameraControllers[camId] = cameraController
@@ -934,6 +941,7 @@ extension CameraFeatureCameraRouter: ArsdkFeatureCameraCallback {
             case .error:
                 cameraController.camera.update(photoState: .errorInternal)
             case .sdkCoreUnknown:  break
+            @unknown default: break
             }
             cameraController.camera.notifyUpdated()
             self.cameraControllers[camId] = cameraController

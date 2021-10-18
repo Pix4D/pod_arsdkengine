@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// FlightLog downloader delegate
-protocol ArsdkFlightLogDownloaderDelegate: class {
+protocol ArsdkFlightLogDownloaderDelegate: AnyObject {
     /// Configure the delegate
     ///
     /// - Parameter downloader: the downloader in charge
@@ -58,25 +58,34 @@ class HttpFlightLogDownloader: ArsdkFlightLogDownloader {
     ///
     /// - Parameters:
     ///     - deviceController: device controller owning this component controller (weak)
+    ///     - flightLogConverterStorage: flight Log converter Storage Utility
+    init(deviceController: DeviceController, flightLogConverterStorage: FlightLogConverterStorageCore) {
+        super.init(deviceController: deviceController, flightLogConverterStorage: flightLogConverterStorage,
+                   delegate: HttpFlightLogDownloaderDelegate())
+    }
+
+    /// Constructor
+    ///
+    /// - Parameters:
+    ///     - deviceController: device controller owning this component controller (weak)
     ///     - flightLogStorage: flight Log Storage Utility
-    ///     - converter: converter notified in background thread when flight logs are downloaded
-    init(deviceController: DeviceController, flightLogStorage: FlightLogStorageCore, converter: FileConverter?) {
-        super.init(deviceController: deviceController, flightLogStorage: flightLogStorage, converter: converter,
+    init(deviceController: DeviceController, flightLogStorage: FlightLogStorageCore) {
+        super.init(deviceController: deviceController, flightLogStorage: flightLogStorage,
                    delegate: HttpFlightLogDownloaderDelegate())
     }
 }
 
 /// FlightLog downloader component controller subclass that does the download through ftp
 class FtpFlightLogDownloader: ArsdkFlightLogDownloader {
+
     /// Constructor
     ///
     /// - Parameters:
     ///     - deviceController: device controller owning this component controller (weak)
     ///     - flightLogStorage: flight Log Storage Utility
-    ///     - converter: converter notified in background thread when flight logs are downloaded
-    init(deviceController: DeviceController, flightLogStorage: FlightLogStorageCore, converter: FileConverter?) {
+    init(deviceController: DeviceController, flightLogStorage: FlightLogStorageCore) {
         super.init(deviceController: deviceController, flightLogStorage: flightLogStorage,
-                   converter: converter, delegate: FtpFlightLogDownloaderDelegate())
+                   delegate: FtpFlightLogDownloaderDelegate())
     }
 }
 
@@ -85,15 +94,19 @@ class ArsdkFlightLogDownloader: DeviceComponentController {
 
     /// FlightLogDownloader component.
     let flightLogDownloader: FlightLogDownloaderCore
+    /// Flight Log converter storage utility
+    var flightLogConverterStorage: FlightLogConverterStorageCore?
     /// Flight Log storage utility
-    let flightLogStorage: FlightLogStorageCore
-    /// Converter notified in background thread when flight logs are downloaded
-    let converter: FileConverter?
+    var flightLogStorage: FlightLogStorageCore?
 
     // swiftlint:disable weak_delegate
     /// Delegate to actually download the flight logs
     let delegate: ArsdkFlightLogDownloaderDelegate
     // swiftlint:enable weak_delegate
+
+    /// Url path of the current work directory where flightLogs downloaded from remote devices get stored.
+    /// This directory is located in `engineDir`.
+    let workDir: URL
 
     /// User Account Utility
     private var userAccountUtilityCore: UserAccountUtilityCore?
@@ -102,15 +115,31 @@ class ArsdkFlightLogDownloader: DeviceComponentController {
     ///
     /// - Parameters:
     ///     - deviceController: device controller owning this component controller (weak)
-    ///     - flightLogStorage: flight Log Storage Utility
-    ///     - converter: converter notified in background thread when flight logs are downloaded
-    fileprivate init(deviceController: DeviceController, flightLogStorage: FlightLogStorageCore,
-                     converter: FileConverter?, delegate: ArsdkFlightLogDownloaderDelegate) {
+    ///     - flightLogConverterStorage: flight Log converter Storage Utility
+    ///     - delegate: flight log downloader delegate
+    fileprivate init(deviceController: DeviceController, flightLogConverterStorage: FlightLogConverterStorageCore,
+                     delegate: ArsdkFlightLogDownloaderDelegate) {
         self.delegate = delegate
-        self.flightLogStorage = flightLogStorage
+        self.flightLogConverterStorage = flightLogConverterStorage
+        self.workDir = flightLogConverterStorage.workDir
         self.flightLogDownloader = FlightLogDownloaderCore(store: deviceController.device.peripheralStore)
         self.userAccountUtilityCore =  deviceController.engine.utilities.getUtility(Utilities.userAccount)
-        self.converter = converter
+        super.init(deviceController: deviceController)
+    }
+
+    /// Constructor
+    ///
+    /// - Parameters:
+    ///     - deviceController: device controller owning this component controller (weak)
+    ///     - flightLogStorage: flight Log Storage Utility
+    ///     - delegate: flight log downloader delegate
+    fileprivate init(deviceController: DeviceController, flightLogStorage: FlightLogStorageCore,
+                     delegate: ArsdkFlightLogDownloaderDelegate) {
+        self.delegate = delegate
+        self.flightLogStorage = flightLogStorage
+        self.workDir = flightLogStorage.workDir
+        self.flightLogDownloader = FlightLogDownloaderCore(store: deviceController.device.peripheralStore)
+        self.userAccountUtilityCore =  deviceController.engine.utilities.getUtility(Utilities.userAccount)
         super.init(deviceController: deviceController)
     }
 
@@ -150,7 +179,7 @@ class ArsdkFlightLogDownloader: DeviceComponentController {
 
     /// Downloads flight logs from the controlled device
     private func download() {
-        if delegate.download(toDirectory: flightLogStorage.workDir, downloader: self) {
+         if delegate.download(toDirectory: workDir, downloader: self) {
             flightLogDownloader.update(downloadingFlag: true)
                 .update(completionStatus: .none)
                 .notifyUpdated()

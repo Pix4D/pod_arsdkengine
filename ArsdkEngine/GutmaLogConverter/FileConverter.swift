@@ -30,7 +30,7 @@
 import Foundation
 
 /// Base protocol for a type that can convert a file from a format to another.
-protocol FileConverter: class {
+protocol FileConverter: AnyObject {
     /// Convert a file from a format to another
     ///
     /// - Parameter file: the path of the file to convert

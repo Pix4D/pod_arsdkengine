@@ -106,6 +106,8 @@ extension DroneManagerFeature: ArsdkFeatureDroneManagerCallback {
                 arsdkProxy.remoteDeviceWillDisconnect(uid: serial, model: model, name: name)
             }
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown connection state, skipping this event.")
             return

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package arsdk.netdebuglog;
+
+import "parrot/protobuf/extensions.proto";
+
+option java_package = "com.parrot.drone.arsdk.netdebuglog";
+option java_outer_classname = "NetDebugLog";
+
+option (olympe_package) = "netdebuglog";
+
+/* This is the entry point to receive messages from the drone. */
+message Event {
+    reserved 1 to 15; /* reserved for non-acknowledged events */
+
+    oneof id {
+        string logs_msg = 16;
+    }
+}

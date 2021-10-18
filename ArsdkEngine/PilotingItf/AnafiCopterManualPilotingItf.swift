@@ -35,8 +35,13 @@ class AnafiCopterManualPilotingItf: ManualCopterPilotingItfController {
 
     /// Send takeoff command.
     override func sendTakeOffCommand() {
-        ULog.d(.ctrlTag, "AnafiCopter manual piloting: sending takeoff command")
-        sendCommand(ArsdkFeatureArdrone3Piloting.takeOffEncoder())
+        if self.droneController.drone.model == .anafi2 {
+            ULog.d(.ctrlTag, "AnafiCopter manual piloting: sending smarttakeoffland command")
+            sendCommand(ArsdkFeatureArdrone3Piloting.smartTakeOffLandEncoder())
+        } else {
+            ULog.d(.ctrlTag, "AnafiCopter manual piloting: sending takeoff command")
+            sendCommand(ArsdkFeatureArdrone3Piloting.takeOffEncoder())
+        }
     }
 
     /// Send thrown takeoff command.
@@ -47,8 +52,13 @@ class AnafiCopterManualPilotingItf: ManualCopterPilotingItfController {
 
     /// Send land command.
     override func sendLandCommand() {
-        ULog.d(.ctrlTag, "AnafiCopter manual piloting: sending land command")
-        sendCommand(ArsdkFeatureArdrone3Piloting.landingEncoder())
+        if self.droneController.drone.model == .anafi2 {
+            ULog.d(.ctrlTag, "AnafiCopter manual piloting: sending smarttakeoffland command")
+            sendCommand(ArsdkFeatureArdrone3Piloting.smartTakeOffLandEncoder())
+        } else {
+            ULog.d(.ctrlTag, "AnafiCopter manual piloting: sending land command")
+            sendCommand(ArsdkFeatureArdrone3Piloting.landingEncoder())
+        }
     }
 
     /// Send emergency cut-out command.
@@ -141,6 +151,8 @@ extension AnafiCopterManualPilotingItf: ArsdkFeatureArdrone3PilotingstateCallbac
              .emergencyLanding:
             manualCopterPilotingItf.update(canTakeOff: false).update(canLand: false).notifyUpdated()
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown flying state, skipping this event.")
             return
@@ -154,6 +166,8 @@ extension AnafiCopterManualPilotingItf: ArsdkFeatureArdrone3PilotingstateCallbac
         case .moving:
             manualCopterPilotingItf.update(smartWillThrownTakeoff: true).notifyUpdated()
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown onMotion state, skipping this event.")
             return

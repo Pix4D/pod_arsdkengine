@@ -346,7 +346,7 @@ class ThermalController: DeviceComponentController, ThermalControlBackend {
         // iterate settings received during the connection
         for setting in droneSettings {
             switch setting {
-            case .mode (let mode):
+            case .mode(let mode):
                 if let preset: ThermalControlMode = presetStore?.read(key: setting.key) {
                     if preset != mode {
                         _ = sendModeCommand(preset)
@@ -614,6 +614,8 @@ extension ThermalController: ArsdkFeatureThermalCallback {
         case .blended:
             settingDidChange(.mode(.blended))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change the thermal control modes
             ULog.w(.tag, "Unknown thermal control mode, skipping this event.")
         }
@@ -686,6 +688,8 @@ extension ThermalController: ArsdkFeatureThermalCallback {
         case .low:
             settingDidChange(.sensitivityRange(.low))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change the range of sensitivity
             ULog.w(.tag, "Unknown thermal range, skipping this event.")
         }
@@ -698,6 +702,8 @@ extension ThermalController: ArsdkFeatureThermalCallback {
         case .manual:
             settingDidChange(.calibrationMode(.manual))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change the thermal calibration modes
             ULog.w(.tag, "Unknown thermal shutter mode, skipping this event.")
         }

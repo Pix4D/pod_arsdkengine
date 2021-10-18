@@ -30,7 +30,7 @@
 import Foundation
 import GroundSdk
 
-/// Anafi 4k specific drone controller
+/// Anafi specific drone controller
 class AnafiFamilyDroneController: DroneController {
 
     /// Shared last known state of the tracking function at the drone level
@@ -62,12 +62,18 @@ class AnafiFamilyDroneController: DroneController {
         componentControllers.append(AnafiPoiPilotingItf(
             activationController: pilotingItfActivationController))
 
+        componentControllers.append(AutoLookAtPilotingItf(
+            activationController: pilotingItfActivationController))
+        componentControllers.append(AutoFollowPilotingItf(
+            activationController: pilotingItfActivationController))
         componentControllers.append(FollowFeatureLookAtPilotingItf(
             activationController: pilotingItfActivationController, trackingSharing: trackingSharing))
         componentControllers.append(FollowFeatureFollowMePilotingItf(
             activationController: pilotingItfActivationController, trackingSharing: trackingSharing))
+
         // Not activable piloting Itfs
-        componentControllers.append(AnimFeaturePilotingItfController(droneController: self))
+        componentControllers.append(AnimFeaturePilotingItfController(
+            activationController: pilotingItfActivationController))
         // Instruments
         componentControllers.append(AnafiFlyingIndicators(deviceController: self))
         componentControllers.append(AnafiAlarms(deviceController: self))
@@ -80,13 +86,27 @@ class AnafiFamilyDroneController: DroneController {
         componentControllers.append(CommonBatteryInfo(deviceController: self))
         componentControllers.append(AnafiFlightMeter(deviceController: self))
         componentControllers.append(CameraFeatureExposureValues(deviceController: self))
+        componentControllers.append(AnafiFlightInfo(deviceController: self))
+        if model == .anafi2 {
+            componentControllers.append(Anafi2CellularLogs(deviceController: self))
+        }
         // Peripherals
         componentControllers.append(AnafiMagnetometer(deviceController: self))
-        componentControllers.append(StreamServerController(deviceController: self))
+        let streamServer = (model == .anafi4k || model == .anafiThermal || model == .anafiUa || model == .anafiUsa) ?
+            StreamServerMonoController(deviceController: self) :
+            StreamServerMultiController(deviceController: self)
+        componentControllers.append(streamServer)
         componentControllers.append(CameraFeatureCameraRouter(deviceController: self))
-        componentControllers.append(CameraFeatureAntiflicker(deviceController: self))
+        if model == .anafi2 {
+            componentControllers.append(Anafi2Antiflicker(deviceController: self))
+        } else {
+            componentControllers.append(CameraFeatureAntiflicker(deviceController: self))
+        }
+        componentControllers.append(Camera2Router(deviceController: self))
         componentControllers.append(HttpMediaStore(deviceController: self))
         componentControllers.append(AnafiSystemInfo(deviceController: self))
+
+        componentControllers.append(MissionUpdaterController(deviceController: self))
         if let firmwareStore = engine.utilities.getUtility(Utilities.firmwareStore),
             let firmwareDownloader = engine.utilities.getUtility(Utilities.firmwareDownloader) {
             componentControllers.append(
@@ -103,15 +123,24 @@ class AnafiFamilyDroneController: DroneController {
             componentControllers.append(
                 HttpFlightDataDownloader(deviceController: self, flightDataStorage: flightDataStorage))
         }
-        if let flightLogStorage = engine.utilities.getUtility(Utilities.flightLogStorage) {
+        if let flightLogConverterStorage = engine.utilities.getUtility(Utilities.flightLogConverterStorage) {
             componentControllers.append(
-                HttpFlightLogDownloader(deviceController: self, flightLogStorage: flightLogStorage,
-                                        converter: GutmaLogProducer.create(deviceController: self)))
+                HttpFlightLogDownloader(deviceController: self, flightLogConverterStorage: flightLogConverterStorage))
+        } else if let flightLogStorage =  engine.utilities.getUtility(Utilities.flightLogStorage) {
+            componentControllers.append(
+                HttpFlightLogDownloader(deviceController: self, flightLogStorage: flightLogStorage))
+        }
+        if let flightCameraRecordStorage = engine.utilities.getUtility(Utilities.flightCameraRecordStorage) {
+            componentControllers.append(
+                HttpFlightCameraRecordDownloader(deviceController: self,
+                                        flightCameraRecordStorage: flightCameraRecordStorage))
         }
         componentControllers.append(WifiFeatureWifiAccessPoint(deviceController: self))
-        componentControllers.append(UserStorageRemovableUserStorage(deviceController: self))
+        componentControllers.append(RemovableUserStorageController(deviceController: self))
+        componentControllers.append(InternalUserStorageController(deviceController: self))
         componentControllers.append(AnafiBeeper(deviceController: self))
         componentControllers.append(GimbalFeatureGimbal(deviceController: self))
+        componentControllers.append(GimbalFeatureFrontStereoGimbal(deviceController: self))
         componentControllers.append(TargetTrackerController(deviceController: self))
         componentControllers.append(AnafiGeofence(deviceController: self))
         componentControllers.append(PreciseHomeController(deviceController: self))
@@ -119,13 +148,22 @@ class AnafiFamilyDroneController: DroneController {
         componentControllers.append(LedsController(deviceController: self))
         componentControllers.append(PhotoProgressIndicatorController(deviceController: self))
         componentControllers.append(AnafiPilotingControl(deviceController: self))
+        componentControllers.append(OnboardTrackerController(deviceController: self))
         componentControllers.append(BatteryGaugeUpdaterController(deviceController: self))
         componentControllers.append(DriController(deviceController: self))
+        componentControllers.append(AnafiStereoVisionSensor(deviceController: self))
         componentControllers.append(LogControlController(deviceController: self))
-        componentControllers.append(CertificateUploaderController(deviceController: self))
+        componentControllers.append(CellularController(deviceController: self))
+        componentControllers.append(ObstacleAvoidanceController(deviceController: self))
         if GroundSdkConfig.sharedInstance.enableDevToolbox {
             componentControllers.append(AnafiDevToolbox(deviceController: self))
         }
+        componentControllers.append(MissionManagerController(deviceController: self))
+        componentControllers.append(CertificateUploaderController(deviceController: self))
+        componentControllers.append(NetworkController(deviceController: self))
+        componentControllers.append(FlightCameraRecorderController(deviceController: self))
+        componentControllers.append(SecureElementController(deviceController: self))
+        componentControllers.append(AnafiTakeoffChecklist(deviceController: self))
         sendDateAndTime = { [weak self] in
             let dateFormatter = DateFormatter()
             dateFormatter.timeZone = NSTimeZone.system
@@ -136,6 +174,10 @@ class AnafiFamilyDroneController: DroneController {
             dateFormatter.dateFormat = "yyyyMMdd'T'HHmmssZZZ"
             let currentDateStr = dateFormatter.string(from: currentDate)
             self?.sendCommand(ArsdkFeatureCommonCommon.currentDateTimeEncoder(datetime: currentDateStr))
+
+            if let eventLogger = self?.engine.utilities.getUtility(Utilities.eventLogger) {
+                eventLogger.log("EVT:SEND_TIME;time='\(currentDateStr)'")
+            }
         }
     }
 

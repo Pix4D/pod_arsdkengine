@@ -31,15 +31,15 @@ import Foundation
 import SdkCore
 
 /// Websocket client delegate
-protocol WebSocketSessionDelegate: class {
+protocol WebSocketSessionDelegate: AnyObject {
     /// A message has been received
     ///
     /// - Parameter data: received message data
     func webSocketSessionDidReceiveMessage(_ data: Data)
-    /// Web socket did disconnect
+    /// Web socket did disconnect, or connection could not be established
     func webSocketSessionDidDisconnect()
-    /// Web socket connection did fail
-    func webSocketSessionConnectionDidFail()
+    /// Web socket connection has error
+    func webSocketSessionConnectionHasError()
 }
 
 /// A web socket client session
@@ -130,9 +130,9 @@ class WebSocketClientSession: WebSocketSession {
     ///
     /// - Returns: web socket key
     private func generateKey() -> String {
-        let bytes: [UInt32] = (0..<4).map { _ in arc4random() }
-        return withUnsafePointer(to: bytes) {
-            return Data(bytes: $0, count: bytes.count * MemoryLayout<UInt32>.size).base64EncodedString()
+        let bytes = (0..<4).map { _ in arc4random() }
+        return bytes.withUnsafeBufferPointer { (pointer: UnsafeBufferPointer<UInt32>) -> String in
+            Data(buffer: pointer).base64EncodedString()
         }
     }
 
@@ -151,7 +151,7 @@ class WebSocketClientSession: WebSocketSession {
                 inputBuffer = inputBuffer.subdata(in: headerSeparatorPos.upperBound..<inputBuffer.count)
             } else {
                 ULog.w(.wsTag, "WebSocket connection did Fail")
-                delegate?.webSocketSessionConnectionDidFail()
+                // Nothing to do because streamSocketConnectionDidClose() should be called
             }
         }
         // Already connected, process remaining data as websocket frame
@@ -226,15 +226,15 @@ class WebSocketClientSession: WebSocketSession {
                     len = Int(lenBase)
                 case 126:
                     if data.count >= 4 {
-                        len = data.subdata(in: 2..<4).withUnsafeBytes {(buf: UnsafePointer<UInt16>) -> Int in
-                            return Int(buf[0].bigEndian)
+                        len = data.subdata(in: 2..<4).withUnsafeBytes {
+                            Int($0.load(as: UInt16.self).bigEndian)
                         }
                         headerLen += 2
                     }
                 case 127:
                     if data.count >= 10 {
-                        len = data.subdata(in: 2..<10).withUnsafeBytes {(buf: UnsafePointer<Int>) -> Int in
-                            return Int(bigEndian: Int(buf[0]))
+                        len = data.subdata(in: 2..<10).withUnsafeBytes {
+                            Int(bigEndian: $0.load(as: Int.self))
                         }
                         headerLen += 8
                     }
@@ -242,9 +242,8 @@ class WebSocketClientSession: WebSocketSession {
                 }
 
                 if maskBit {
-                    mask = data.subdata(
-                        in: headerLen..<headerLen+2).withUnsafeBytes {(buf: UnsafePointer<UInt16>) -> UInt16 in
-                            return buf[0]
+                    mask = data.subdata(in: headerLen..<headerLen+2).withUnsafeBytes {
+                            $0.load(as: UInt16.self)
                     }
                     headerLen += 2
                 }
@@ -273,7 +272,7 @@ extension WebSocketClientSession: StreamSocketConnectionDelegate {
 
     internal func streamSocketConnectionHasError(_ connection: StreamSocketConnection) {
         ULog.d(.wsTag, "WebSocket streamSocketConnectionHasError")
-        delegate?.webSocketSessionConnectionDidFail()
+        delegate?.webSocketSessionConnectionHasError()
     }
 
     internal func streamSocketConnectionDidClose(_ connection: StreamSocketConnection) {

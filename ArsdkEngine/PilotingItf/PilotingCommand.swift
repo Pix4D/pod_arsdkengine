@@ -28,6 +28,7 @@
 //    SUCH DAMAGE.
 
 import Foundation
+import GroundSdk
 import SdkCore
 
 /// Generic piloting command encoder

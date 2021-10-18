@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Parrot Drones SAS
+// Copyright (C) 2021 Parrot Drones SAS
 //
 //    Redistribution and use in source and binary forms, with or without
 //    modification, are permitted provided that the following conditions
@@ -28,36 +28,43 @@
 //    SUCH DAMAGE.
 
 import Foundation
-import GroundSdk
+import SdkCore
 
-/// Updater event receiver specific for drones.
-///
-/// - Note: this delegate only uses Ardrone3 message based drones.
-class DroneUpdaterEventReceiver: NSObject, UpdaterEventReceiver {
-    /// Callback to call when update ability has changed
-    private var updateUnavailabilityReasonChanged: ((UpdaterUpdateUnavailabilityReason, Bool) -> Void)!
+/// Base controller of stream sink.
+public class SinkController: NSObject {
 
-    func configure(updateUnavailabilityReasonChanged: @escaping (UpdaterUpdateUnavailabilityReason, Bool) -> Void) {
-        self.updateUnavailabilityReasonChanged = updateUnavailabilityReasonChanged
+    /// Stream controller providing the sdkcoreStream.
+    unowned let streamCtrl: StreamController
+
+    /// Sdkcore stream powering this sink, `nil` if unavailable.
+    var sdkcoreStream: ArsdkStream?
+
+    /// Constructor
+    ///
+    /// - Parameter streamCtrl: the stream controller providing the sdkcoreStream.
+    public init(streamCtrl: StreamController) {
+        self.streamCtrl = streamCtrl
+        super.init()
+        streamCtrl.register(sink: self)
     }
 
-    func didReceiveCommand(_ command: OpaquePointer) {
-        if ArsdkCommand.getFeatureId(command) == kArsdkFeatureCommonCommonstateUid {
-            ArsdkFeatureCommonCommonstate.decode(command, callback: self)
-        } else if ArsdkCommand.getFeatureId(command) == kArsdkFeatureArdrone3PilotingstateUid {
-            ArsdkFeatureArdrone3Pilotingstate.decode(command, callback: self)
+    /// Closes the sink.
+    public func close() {
+        if sdkcoreStream != nil {
+            onSdkCoreStreamUnavailable()
         }
+        streamCtrl.unregister(sink: self)
     }
-}
 
-extension DroneUpdaterEventReceiver: ArsdkFeatureCommonCommonstateCallback {
-    func onBatteryStateChanged(percent: UInt) {
-        updateUnavailabilityReasonChanged(.notEnoughBattery, percent < 40)
+    /// Notifies that sdkcoreStream is available.
+    ///
+    /// - Parameter sdkCoreStream: the sdkCoreStream available.
+    func onSdkCoreStreamAvailable(sdkCoreStream: ArsdkStream) {
+        self.sdkcoreStream = sdkCoreStream
     }
-}
 
-extension DroneUpdaterEventReceiver: ArsdkFeatureArdrone3PilotingstateCallback {
-    func onFlyingStateChanged(state: ArsdkFeatureArdrone3PilotingstateFlyingstatechangedState) {
-        updateUnavailabilityReasonChanged(.notLanded, state != .landed && state != .emergency)
+    /// Notifies that sdkcoreStream is unavailable.
+    func onSdkCoreStreamUnavailable() {
+        sdkcoreStream = nil
     }
 }

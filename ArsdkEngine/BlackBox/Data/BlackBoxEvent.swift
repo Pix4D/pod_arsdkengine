@@ -81,6 +81,14 @@ struct BlackBoxEvent: Encodable {
         return BlackBoxEvent(type: "product_motor_error", value: error)
     }
 
+    /// Obtains a three motors flight event
+    ///
+    /// - Parameter reason: three motors flight reason
+    /// - Returns: three motors flight event
+    static func threeMotorsFlight(_ reason: Int) -> BlackBoxEvent {
+        return BlackBoxEvent(type: "product_three_motors_flight", value: reason)
+    }
+
     /// Obtains a battery alert event
     ///
     /// - Parameters:

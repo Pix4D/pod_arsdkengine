@@ -60,6 +60,9 @@ public class ArsdkEngine: EngineBaseCore {
         arsdk = Arsdk(engine: self)
         persistentStore = createPersistentStore()
         AppDefaults.importTo(persistentStore: persistentStore)
+
+        // Publish utilities by the engine initiative.
+        publishUtility(FileReplayBackendProviderCore())
     }
 
     public override func startEngine() {
@@ -125,11 +128,6 @@ public class ArsdkEngine: EngineBaseCore {
             backendController.append(ArsdkMuxEaBackendController(
                 supportedDeviceTypes: Set<NSNumber>(usbModels.map { NSNumber(value: $0.internalId) })))
         }
-        if GroundSdkConfig.sharedInstance.enableUsbDebug {
-            let usbModels = DeviceModel.supportingTechnology(models: supportedDevices, technology: .usb)
-            backendController.append(ArsdkMuxIpBackendController(
-                supportedDeviceTypes: Set<NSNumber>(usbModels.map { NSNumber(value: $0.internalId) })))
-        }
         return backendController
     }
 
@@ -170,12 +168,12 @@ public class ArsdkEngine: EngineBaseCore {
         switch model {
         case .drone(let droneModel):
             switch droneModel {
-            case .anafi4k, .anafiThermal, .anafiUa, .anafiUsa:
+            case .anafi4k, .anafiThermal, .anafi2, .anafiUa, .anafiUsa:
                 return AnafiFamilyDroneController(engine: self, deviceUid: uid, name: name, model: droneModel)
             }
         case .rc(let rcModel):
             switch rcModel {
-            case .skyCtrl3, .skyCtrlUA:
+            case .skyCtrl3, .skyCtrl4, .skyCtrlUA:
                 return SkyControllerFamilyController(engine: self, deviceUid: uid, model: rcModel, name: name)
             }
         }

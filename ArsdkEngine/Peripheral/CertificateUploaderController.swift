@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// Certificate uploader delegate
-protocol CertificateUploaderDelegate: class {
+protocol CertificateUploaderDelegate: AnyObject {
 
     /// Configure the uploader
     func configure()

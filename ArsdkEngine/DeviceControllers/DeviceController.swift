@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// Callback called when the device controller close itself
-protocol DeviceControllerStoppedListener: class {
+protocol DeviceControllerStoppedListener: AnyObject {
     /// Device controller stopped itself
     ///
     /// - Parameter uid: device uid
@@ -110,7 +110,7 @@ protocol RegisteredNoAckCmdEncoder {
 /// Device controller protocol backend.
 ///
 /// Used by the controller, after link connection is established, in order to send commands to the associated device.
-protocol DeviceControllerBackend: class {
+protocol DeviceControllerBackend: AnyObject {
 
     /// Sends a command to the controller device.
     ///
@@ -149,27 +149,32 @@ protocol DeviceControllerBackend: class {
     ///   - model: the model to access
     ///   - port: the port to access
     ///   - completion: completion callback that is called when the tcp proxy is created (or on error).
-    ///   - tcpProxy: the proxy object. Nil if an error occurred.
+    ///   - tcpProxy: the proxy handle to keep to maintain the proxy open. Nil if an error occurred.
     ///   - proxyAddress: the address to use in order to reach the given `port`. Nil if an error occurred.
-    ///   - proxyPort: the port to use in order to reach the given `port`. If `proxyAddress` is nil, this value should
-    ///                be ignored.
-    func createTcpProxy(
-        model: DeviceModel, port: Int,
+    ///   - proxyPort: the port to use in order to reach the given `port`.
+    ///                If `proxyAddress` is `nil`, this value should be ignored.
+    func createTcpProxy(model: DeviceModel, port: Int,
         completion: @escaping (_ tcpProxy: ArsdkTcpProxy?, _ proxyAddress: String?, _ proxyPort: Int) -> Void)
 
-    /// Destroy the tcp proxy in pomp thread
+    /// Creates a video live stream source.
     ///
-    /// - Parameter block: block that needs to be executed in pomp thread to destroy tcpProxy
-    func destroyTcpProxy(block: @escaping() -> Void)
+    /// - Parameter cameraType: stream camera type
+    /// - Returns: a new instance of a live stream source
+    func createVideoSourceLive(cameraType: ArsdkSourceLiveCameraType) -> ArsdkSourceLive
 
-    /// Create a video stream instance from a url.
+    /// Creates a media stream source.
     ///
     /// - Parameters:
     ///    - url: stream url
-    ///    - track: stream track
-    ///    - listener: the listener that should be called for stream events
+    ///    - trackName: stream track name
+    /// - Returns: a new instance of a media stream source
+    func createVideoSourceMedia(url: String, trackName: String?) -> ArsdkSourceMedia
+
+    /// Create a video stream instance.
+    ///
+    /// - Parameter listener: the listener that should be called for stream events
     /// - Returns: a new instance of a stream
-    func createVideoStream(url: String, track: String, listener: SdkCoreStreamListener) -> ArsdkStream
+    func createVideoStream(listener: ArsdkStreamListener) -> ArsdkStream
 
     /// List all medias stored in the device
     ///
@@ -280,25 +285,30 @@ protocol DeviceControllerBackend: class {
 class ControllerConnectionSession {
     /// Connection state of the session
     enum State {
-        /// Controller is fully disconnected
+        /// Controller is fully disconnected.
         case disconnected
 
-        /// Controller is connecting
+        /// Link is connecting.
+        /// The protocol connection is not initiated.
         case connecting
 
-        /// Controller is creating the http client of the device
+        /// Controller is creating the http client of the device.
+        /// This is the first step of the protocol connection; the protocol is connecting.
         case creatingDeviceHttpClient
 
-        /// Controller is getting all settings of the device
+        /// Controller is getting all settings of the device.
+        /// The protocol is connecting.
         case gettingAllSettings
 
-        /// Controller is getting all states of the device
+        /// Controller is getting all states of the device.
+        /// The protocol is connecting.
         case gettingAllStates
 
-        /// Controller is fully connected to the device
+        /// Controller is fully connected to the device.
+        /// The protocol is connected.
         case connected
 
-        /// Controller is disconnecting the device
+        /// Controller is disconnecting the device.
         case disconnecting
     }
     var state: State
@@ -403,6 +413,9 @@ class DeviceController: NSObject {
 
     /// Memorize the previous data sync allowance value in order to notify only if it has changed.
     private var previousDataSyncAllowed = false
+
+    /// Device event logger.
+    public var deviceEventLogger: DeviceEventLogger?
 
     /// API Capabilities.
     private var apiCapabilities = ArsdkApiCapabilities.unknown
@@ -539,12 +552,13 @@ class DeviceController: NSObject {
     ///
     /// - Parameter cause: cause of this disconnection request
     /// - Returns: true if the disconnection process has started, false otherwise.
-    final func doDisconnect(cause: DeviceState.ConnectionStateCause) -> Bool {
+    func doDisconnect(cause: DeviceState.ConnectionStateCause) -> Bool {
         if let activeProvider = activeProvider {
             if activeProvider.disconnect(deviceController: self) {
                 device.stateHolder.state?.update(connectionState: .disconnecting,
                                               withCause: cause).notifyUpdated()
                 connectionSession.state = .disconnecting
+                protocolWillDisconnect()
                 return true
             }
         }
@@ -693,10 +707,10 @@ class DeviceController: NSObject {
     final func downloadFlightLog(path: String, progress: @escaping ArsdkFlightLogDownloadProgress,
                                  completion: @escaping ArsdkFlightLogDownloadCompletion) -> ArsdkRequest? {
         if let backend = backend {
-            return backend.downloadFlightLog(path: "\(path)/", model: deviceModel, progress: progress,
-                                           completion: { status in
-                                            completion(status)
-            })
+            return backend.downloadFlightLog(path: path, model: deviceModel, progress: progress,
+                                             completion: { status in
+                                                completion(status)
+                                             })
         } else {
             ULog.w(.ctrlTag, "flight log download called without backend")
         }
@@ -729,6 +743,8 @@ class DeviceController: NSObject {
             protocolWillConnect()
             // can force unwrap backend since we are connecting
             backend!.createTcpProxy(model: deviceModel, port: 80) { proxy, address, port in
+                guard self.connectionSession.state == .creatingDeviceHttpClient else { return }
+
                 self.arsdkTcpProxy = proxy
                 if let address = address {
                     self.droneServer = DroneServer(address: address, port: port)
@@ -779,20 +795,18 @@ class DeviceController: NSObject {
     final func transitToDisconnectedState(withCause cause: DeviceState.ConnectionStateCause? = nil) {
         ULog.i(.ctrlTag, "Device \(device.uid) disconnected")
         if connectionSession.state == .connected {
-            // if not in disconnected state, notify all component that we will disconnect
+            // Notify all component that the device controller will disconnect.
             protocolWillDisconnect()
         }
         if connectionSession.state != .disconnected {
             let formerState = connectionSession.state
             connectionSession.state = .disconnected
 
-            if let backend = backend {
-                backend.destroyTcpProxy {
-                    self.arsdkTcpProxy = nil
-                }
-            }
+            self.arsdkTcpProxy = nil
 
-            if formerState == .connected || formerState == .disconnecting {
+            // In "connecting" state the "protocol" connection is not yet initiated.
+            if formerState != .connecting {
+                // Notify the disconnection.
                 protocolDidDisconnect()
             }
             _dataSyncAllowed = false
@@ -857,6 +871,7 @@ class DeviceController: NSObject {
         // create the nonAckCommandLoop
         self.backend?.createNoAckCmdLoop(periodMs: noAckLoopPeriod)
         componentControllers.forEach { component in component.didConnect() }
+        deviceEventLogger?.didConnect()
     }
 
     /// About to disconnect protocol
@@ -866,6 +881,7 @@ class DeviceController: NSObject {
 
     /// Device is disconnected
     func protocolDidDisconnect() {
+        deviceEventLogger?.didDisconnect()
         componentControllers.forEach { component in component.didDisconnect() }
         self.backend?.deleteNoAckCmdLoop()
         blackBoxSession?.close()
@@ -876,6 +892,7 @@ class DeviceController: NSObject {
     /// - Parameter command: received command
     func protocolDidReceiveCommand(_ command: OpaquePointer) {
         blackBoxSession?.onCommandReceived(command)
+        deviceEventLogger?.onCommandReceived(command: command)
     }
 
     /// Firmware upload did success
@@ -944,6 +961,10 @@ extension DeviceController {
     }
 
     final func linkWillConnect(provider: DeviceProvider) {
+        guard connectionSession.state == .disconnected else {
+            ULog.e(.ctrlTag, "Bad connection session state : \(connectionSession.state)")
+            return
+        }
         if activeProvider == nil || activeProvider == provider {
             activeProvider = provider
             autoReconnect = false

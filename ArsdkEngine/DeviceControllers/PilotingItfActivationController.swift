@@ -28,12 +28,21 @@
 //    SUCH DAMAGE.
 
 import Foundation
+import GroundSdk
+
+/// The PilotingItfActivationControllerObserver will be triggered when the current piloting interface changes.
+public protocol PilotingItfActivationControllerObserver: AnyObject {
+    func currentPilotingItfChanged()
+}
 
 /// Coordinates activation and deactivation of the various activable piloting interface of a drone.
 class PilotingItfActivationController {
 
     /// Drone controller
     private(set) unowned var droneController: DroneController
+
+    /// Observer of piloting interface activation controller
+    private var observers: [PilotingItfActivationControllerObserver] = []
 
     /// Encoder of the piloting command
     let pilotingCommandEncoder: PilotingCommandEncoder
@@ -42,10 +51,13 @@ class PilotingItfActivationController {
     /// Should not be set outside the constructor
     private(set) var defaultPilotingItf: ActivablePilotingItfController!
 
-    /// Currently active piloting interface. Null if there is no active piloting interface.
-    private var currentPilotingItf: ActivablePilotingItfController? {
+    /// Currently active piloting interface. Nil if there is no active piloting interface.
+    private(set) var currentPilotingItf: ActivablePilotingItfController? {
         didSet {
             if currentPilotingItf != oldValue {
+                for observer in observers {
+                    observer.currentPilotingItfChanged()
+                }
                 if let current = currentPilotingItf, current.sendsPilotingCommands {
                     pilotingCommandEncoder.reset()
                     registerInNoAckCommandLoop()
@@ -127,6 +139,7 @@ class PilotingItfActivationController {
         isConnected = false
         currentPilotingItf = nil
         nextPilotingItf = nil
+        observers.removeAll()
     }
 
     /// Called back when a piloting interface declares itself unavailable.
@@ -162,6 +175,10 @@ class PilotingItfActivationController {
             let pilotingItfToDeactivate = currentPilotingItf
             currentPilotingItf = pilotingItf
             pilotingItfToDeactivate?.requestDeactivation()
+            if let pilotingInterface = currentPilotingItf {
+                GroundSdkCore.logEvent(
+                    message: "EVT:PILOTING;mode='\(String(describing: type(of: pilotingInterface)))'")
+            }
          }
     }
 
@@ -234,6 +251,26 @@ class PilotingItfActivationController {
             self.nextPilotingItf = nil
         } else { // fallback on the default interface
             defaultPilotingItf.requestActivation()
+        }
+    }
+
+    /// Add observer of piloting interface activation controller
+    ///
+    /// - Parameter observer: observer to add
+    func addObserver(observer: PilotingItfActivationControllerObserver) {
+        for observerInArray in observers where observer === observerInArray {
+            return
+        }
+        observers.append(observer)
+    }
+
+    /// Remove observer of piloting interface activation controller
+    ///
+    /// - Parameter observer: observer to remove
+    func removeObserver(observer: PilotingItfActivationControllerObserver) {
+        for i in 0..<observers.count {
+            observers.remove(at: i)
+            return
         }
     }
 }

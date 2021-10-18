@@ -286,7 +286,7 @@ class DriController: DeviceComponentController, DriBackend {
         // iterate settings received during the connection
         for setting in droneSettings {
             switch setting {
-            case .mode (let mode):
+            case .mode(let mode):
                 if let preset: Bool = presetStore?.read(key: setting.key) {
                     if preset != mode {
                         _ = sendModeCommand(preset)

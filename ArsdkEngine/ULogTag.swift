@@ -76,8 +76,11 @@ extension ULogTag {
     /// Logging tag of arsdk file converter to Gutma
     static let gutmaLogTag = ULogTag(name: "arsdkengine.gutmalog")
 
-    /// Logging tag of arsdk webSocket session
+    /// Logging tag of arsdk flight log
     static let flightLogTag = ULogTag(name: "arsdkengine.flightlog")
+
+    /// Logging tag of arsdk flight camera record
+    static let flightCameraRecordTag = ULogTag(name: "arsdkengine.flightcamerarecord")
 
     /// Logging tag of arsdk stream
     static let streamTag = ULogTag(name: "arsdkengine.stream")
@@ -85,6 +88,18 @@ extension ULogTag {
     /// tag myparrot debug
     static let myparrot = ULogTag(name: "MYPARROT-arsdkv1-")
 
+    /// Logging tag of arsdk stereo vision sensor
+    static let stereovisionTag = ULogTag(name: "arsdkengine.stereovisionlog")
+
+    /// Logging tag of arsdk missions
+    static let missionsTag = ULogTag(name: "arsdkengine.missions")
+
     /// Logging tag of arsdk credentials
     static let credentialTag = ULogTag(name: "arsdkengine.credential")
+
+    /// Logging tag of arsdk engine netwok control
+    static let networkControlTag = ULogTag(name: "arsdkengine.networkControl")
+
+    /// Logging tag of arsdk SecureElement
+    static let secureElementTag = ULogTag(name: "arsdkengine.secureElement")
 }

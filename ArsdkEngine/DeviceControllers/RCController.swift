@@ -29,6 +29,7 @@
 
 import Foundation
 import GroundSdk
+import SwiftProtobuf
 
 /// Device controller for a RC (Remote Control).
 class RCController: ProxyDeviceController {
@@ -44,6 +45,12 @@ class RCController: ProxyDeviceController {
     /// Remote control black box subscription
     private var rcBlackBoxSubscription: ArsdkRequest?
 
+    /// Monitor of the userAccount changes
+    private var userAccountMonitor: MonitorCore!
+
+    /// User account information
+    private var userAccountInfo: UserAccountInfoCore?
+
     /// Constructor
     ///
     /// - Parameters:
@@ -58,6 +65,10 @@ class RCController: ProxyDeviceController {
         self.getAllSettingsEncoder = ArsdkFeatureSkyctrlSettings.allSettingsEncoder()
         self.getAllStatesEncoder = ArsdkFeatureSkyctrlCommon.allStatesEncoder()
         self.droneManager = DroneManagerFeature(arsdkProxy: arsdkProxy)
+
+        if let eventLogger = engine.utilities.getUtility(Utilities.eventLogger) {
+            deviceEventLogger = RCEventLogger(eventLog: eventLogger, engine: self.engine, device: self.device)
+        }
     }
 
     /// Device controller did start
@@ -65,6 +76,23 @@ class RCController: ProxyDeviceController {
         super.controllerDidStart()
         // Can force unwrap remote control store utility because we know it is always available after the engine's start
         engine.utilities.getUtility(Utilities.remoteControlStore)!.add(remoteControl)
+        let userAccountUtility = engine.utilities.getUtility(Utilities.userAccount)!
+        // get userInfo and monitor changes
+        userAccountInfo = userAccountUtility.userAccountInfo
+        // monitor userAccount changes
+        userAccountMonitor = userAccountUtility.startMonitoring(accountDidChange: { (newUserAccountInfo) in
+            if newUserAccountInfo != self.userAccountInfo {
+                if self.userAccountInfo?.token != newUserAccountInfo?.token,
+                   let token = newUserAccountInfo?.token {
+                    self.sendToken(token)
+                }
+                if self.userAccountInfo?.droneList != newUserAccountInfo?.droneList,
+                   let droneList = newUserAccountInfo?.droneList {
+                    self.sendDroneList(droneList)
+                }
+                self.userAccountInfo = newUserAccountInfo
+            }
+        })
     }
 
     /// Device controller did stop
@@ -72,6 +100,15 @@ class RCController: ProxyDeviceController {
         super.controllerDidStop()
         // Can force unwrap remote control store utility because we know it is always available after the engine's start
         engine.utilities.getUtility(Utilities.remoteControlStore)!.remove(remoteControl)
+
+        userAccountMonitor?.stop()
+        userAccountMonitor = nil
+        let notificationCenter = NotificationCenter.default
+        if #available(iOS 13.0, *) {
+            notificationCenter.removeObserver(self, name: UIScene.didEnterBackgroundNotification, object: nil)
+        } else {
+            notificationCenter.removeObserver(self, name: UIApplication.didEnterBackgroundNotification, object: nil)
+        }
     }
 
     override func protocolWillConnect() {
@@ -97,8 +134,19 @@ class RCController: ProxyDeviceController {
         droneManager.protocolWillDisconnect()
     }
 
+    override func protocolDidConnect() {
+        super.protocolDidConnect()
+        if let token = userAccountInfo?.token {
+            sendToken(token)
+        }
+        if let droneList = userAccountInfo?.droneList {
+            sendDroneList(droneList)
+        }
+    }
+
     override func protocolDidDisconnect() {
         super.protocolDidDisconnect()
+        NotificationCenter.default.removeObserver(self, name: UIApplication.willTerminateNotification, object: nil)
         rcBlackBoxSubscription?.cancel()
         rcBlackBoxSubscription = nil
     }
@@ -136,6 +184,33 @@ class RCController: ProxyDeviceController {
     override func forgetRemoteDevice(uid: String) {
         droneManager.forgetRemoteDevice(uid: uid)
     }
+
+    /// Send user account token
+    ///
+    /// - Parameter token: user account token
+    private func sendToken(_ token: String) {
+        var tokenCommand = Arsdk_Security_Command.RegisterApcToken()
+        tokenCommand.token = token
+        sendSecurityTokenCommand(.registerApcToken(tokenCommand))
+    }
+
+    /// Send drone list
+    ///
+    /// - Parameter droneList: drone list
+    private func sendDroneList(_ droneList: String) {
+        var droneListCommand = Arsdk_Security_Command.RegisterApcDroneList()
+        droneListCommand.list = droneList
+        sendSecurityTokenCommand(.registerApcDroneList(droneListCommand))
+    }
+
+    /// Sends to the drone a security command.
+    ///
+    /// - Parameter command: command to send
+    private func sendSecurityTokenCommand(_ command: Arsdk_Security_Command.OneOf_ID) {
+        if let encoder = ArsdkSecurityCommandEncoder.encoder(command) {
+            sendCommand(encoder)
+        }
+    }
 }
 
 /// Skyctrl settings events dispatcher, used to receive onAllSettingsChanged
@@ -160,6 +235,10 @@ extension RCController: ArsdkFeatureSkyctrlCommonstateCallback {
         if connectionSession.state == .gettingAllStates {
             transitToNextConnectionState()
         }
+    }
+
+    func onImminentShutdownChanged(duration: Int) {
+        device.stateHolder.state.update(willShutDownIn: duration).notifyUpdated()
     }
 }
 

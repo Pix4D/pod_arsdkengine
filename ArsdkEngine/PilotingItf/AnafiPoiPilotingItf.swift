@@ -66,6 +66,9 @@ class AnafiPoiPilotingItf: ActivablePilotingItfController {
     /// Whether PilotedPOIV2 command is supported
     private var poiV2Supported = false
 
+    /// Set of poi availability issues.
+    private var availabilityIssues: Set<POIIssue>?
+
     /// Constructor
     ///
     /// - Parameter activationController: activation controller that owns this piloting interface controller
@@ -83,6 +86,9 @@ class AnafiPoiPilotingItf: ActivablePilotingItfController {
         pendingPointOfInterest = nil
         isFlying = false
         dronePoiFeatureAvailable = false
+        availabilityIssues = nil
+        poiPilotingItf.update(availabilityIssues: nil)
+
     }
 
     override func didConnect() {
@@ -132,11 +138,13 @@ class AnafiPoiPilotingItf: ActivablePilotingItfController {
 
     /// Updates the state of the piloting interface.
     ///
-    /// If the drone is not flying or is marked as unavailable by the drone, the interface state is set to .unavailable
+    /// If the drone is not flying, the piloted Point Of Interest is marked as unavailable by the drone,
+    /// or at least one availability issue is present, the interface state is set to .unavailable
     /// Otherwise, the interface state is set to .idle if there is running Point Of Interest or to .active
     /// if there is a running Point Of Interest.
     private func updateState() {
-        if isFlying && dronePoiFeatureAvailable {
+        if isFlying && dronePoiFeatureAvailable
+            && (availabilityIssues == nil || availabilityIssues!.isEmpty) {
             if currentPointOfInterest == nil {
                 notifyIdle()
             } else {
@@ -155,6 +163,9 @@ class AnafiPoiPilotingItf: ActivablePilotingItfController {
     override func didReceiveCommand(_ command: OpaquePointer) {
         if ArsdkCommand.getFeatureId(command) == kArsdkFeatureArdrone3PilotingstateUid {
             ArsdkFeatureArdrone3Pilotingstate.decode(command, callback: self)
+        }
+        if ArsdkCommand.getFeatureId(command) == kArsdkFeaturePoiUid {
+            ArsdkFeaturePoi.decode(command, callback: self)
         }
     }
 }
@@ -287,6 +298,8 @@ extension AnafiPoiPilotingItf: ArsdkFeatureArdrone3PilotingstateCallback {
                 case .freeGimbal:
                     newMode = .freeGimbal
                 case .sdkCoreUnknown:
+                    fallthrough
+                @unknown default:
                     newMode = nil
                 }
                 if let newMode = newMode {
@@ -323,9 +336,44 @@ extension AnafiPoiPilotingItf: ArsdkFeatureArdrone3PilotingstateCallback {
             isFlying = true
 
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change anything if value is unknown
             ULog.w(.tag, "Unknown flying state, skipping this event.")
             return
         }
     }
+}
+/// Anafi poi decode callback implementation
+extension AnafiPoiPilotingItf: ArsdkFeaturePoiCallback {
+    func onInfo(missingInputsBitField: UInt) {
+        availabilityIssues = POIIssue.createSetFrom(bitField: missingInputsBitField)
+        poiPilotingItf.update(availabilityIssues: availabilityIssues!)
+        updateState()
+    }
+}
+
+extension POIIssue: ArsdkMappableEnum {
+
+    /// Create set of poi issues from all values set in a bitfield
+    ///
+    /// - Parameter bitField: arsdk bitfield
+    /// - Returns: set containing all poi issues set in bitField
+    static func createSetFrom(bitField: UInt) -> Set<POIIssue> {
+        var result = Set<POIIssue>()
+        ArsdkFeaturePoiIndicatorBitField.forAllSet(in: bitField) { arsdkValue in
+            if let missing = POIIssue(fromArsdk: arsdkValue) {
+                result.insert(missing)
+            }
+        }
+        return result
+    }
+    static var arsdkMapper = Mapper<POIIssue, ArsdkFeaturePoiIndicator>([
+        .droneGpsInfoInaccurate: .droneGps,
+        .droneNotCalibrated: .droneMagneto,
+        .droneOutOfGeofence: .droneGeofence,
+        .droneTooCloseToGround: .droneMinAltitude,
+        .droneAboveMaxAltitude: .droneMaxAltitude,
+        .droneNotFlying: .droneFlying
+        ])
 }

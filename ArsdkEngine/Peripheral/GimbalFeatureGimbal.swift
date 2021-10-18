@@ -31,13 +31,10 @@ import Foundation
 import GroundSdk
 
 /// Gimbal component controller for Gimbal feature message based drones
-class GimbalFeatureGimbal: DeviceComponentController {
+class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
 
     /// Component settings key
     private static let settingKey = "Gimbal-main"
-
-    /// Gimbal id of main gimbal is always zero
-    private static let gimbalId = UInt(0)
 
     /// Gimbal control command encoder.
     private class GimbalControlCommandEncoder: NoAckCmdEncoder {
@@ -62,7 +59,6 @@ class GimbalFeatureGimbal: DeviceComponentController {
         private var controlModeInternalEncoder = ArsdkFeatureGimbalControlMode.position
         /// Set of desired stabilized axes
         private var stabilizationsInternalEncoder: [GimbalAxis: Bool] = [:]
-        //private var stabilizedAxes: Set<GimbalAxis> = []
         /// Desired targets. Value for an axis is nil if this axis should not be controlled
         private var targetInternalEncoder: [GimbalAxis: Double] = [:]
 
@@ -134,7 +130,7 @@ class GimbalFeatureGimbal: DeviceComponentController {
                         }
                     }
                     return ArsdkFeatureGimbal.setTargetEncoder(
-                        gimbalId: GimbalFeatureGimbal.gimbalId,
+                        gimbalId: 0,
                         controlMode: controlMode,
                         yawFrameOfReference: frameOfReferences[.yaw]!,
                         yaw: Float(target[.yaw] ?? 0),
@@ -224,8 +220,15 @@ class GimbalFeatureGimbal: DeviceComponentController {
         }
     }
 
-    /// Gimbal component
-    private var gimbal: GimbalCore!
+    /// Main Gimbal component
+    var gimbalMain: GimbalCore {
+        get {
+            return gimbal as! GimbalCore
+        }
+        set {
+            gimbal = newValue
+        }
+    }
 
     /// Store device specific values
     private let deviceStore: SettingsStore?
@@ -309,7 +312,7 @@ class GimbalFeatureGimbal: DeviceComponentController {
     /// Constructor
     ///
     /// - Parameter deviceController: device controller owning this component controller (weak)
-    override init(deviceController: DeviceController) {
+    init(deviceController: DeviceController) {
         if GroundSdkConfig.sharedInstance.offlineSettings == .off {
             deviceStore = nil
             presetStore = nil
@@ -317,14 +320,14 @@ class GimbalFeatureGimbal: DeviceComponentController {
             deviceStore = deviceController.deviceStore.getSettingsStore(key: GimbalFeatureGimbal.settingKey)
             presetStore = deviceController.presetStore.getSettingsStore(key: GimbalFeatureGimbal.settingKey)
         }
-        super.init(deviceController: deviceController)
+        super.init(deviceController: deviceController, model: .main)
         gimbal = GimbalCore(store: deviceController.device.peripheralStore, backend: self)
 
         // load settings
         if let deviceStore = deviceStore, let presetStore = presetStore, !deviceStore.new && !presetStore.new {
             loadCapabilities()
             loadPresets()
-            gimbal.publish()
+            gimbalMain.publish()
         }
     }
 
@@ -332,7 +335,7 @@ class GimbalFeatureGimbal: DeviceComponentController {
     override func didConnect() {
         storeNewPresets()
         applyPresets()
-        gimbal.publish()
+        gimbalMain.publish()
 
         if let backend = deviceController.backend {
             controlEncoderRegistration = backend.subscribeNoAckCommandEncoder(encoder: controlEncoder)
@@ -343,12 +346,10 @@ class GimbalFeatureGimbal: DeviceComponentController {
     /// Drone is disconnected
     override func didDisconnect() {
         // clear all non saved settings
-        gimbal.update(lockedAxes: GimbalAxis.allCases)
-            .update(currentErrors: [])
-            .update(calibrationProcessState: .none)
+        gimbalMain.update(lockedAxes: GimbalAxis.allCases)
             .cancelSettingsRollback()
         GimbalAxis.allCases.forEach {
-            gimbal.update(absoluteAttitude: nil, onAxis: $0)
+            gimbalMain.update(absoluteAttitude: nil, onAxis: $0)
                 .update(relativeAttitude: nil, onAxis: $0)
                 .update(axisBounds: nil, onAxis: $0)
         }
@@ -364,31 +365,19 @@ class GimbalFeatureGimbal: DeviceComponentController {
         controlEncoderRegistration = nil
         controlEncoder.reset()
 
-        gimbal.update(offsetsCorrectionProcessStarted: false)
+        gimbalMain.update(offsetsCorrectionProcessStarted: false)
 
-        // unpublish if offline settings are disabled
-        if GroundSdkConfig.sharedInstance.offlineSettings == .off {
-            gimbal.unpublish()
-        }
         // empty the calibatable axes
-        gimbal.update(calibratableAxes: [])
-        gimbal.notifyUpdated()
+        gimbalMain.update(calibratableAxes: [])
+
+        super.didDisconnect()
+        gimbalMain.notifyUpdated()
     }
 
     /// Drone is about to be forgotten
     override func willForget() {
         deviceStore?.clear()
-        gimbal.unpublish()
         super.willForget()
-    }
-
-    /// A command has been received
-    ///
-    /// - Parameter command: received command
-    override func didReceiveCommand(_ command: OpaquePointer) {
-        if ArsdkCommand.getFeatureId(command) == kArsdkFeatureGimbalUid {
-            ArsdkFeatureGimbal.decode(command, callback: self)
-        }
     }
 
     /// Preset has been changed
@@ -411,11 +400,11 @@ class GimbalFeatureGimbal: DeviceComponentController {
                 switch capability {
                 case .supportedAxes:
                     if let supportedAxes: StorableArray<GimbalAxis> = deviceStore.read(key: capability.key) {
-                        gimbal.update(supportedAxes: Set(supportedAxes.storableValue))
+                        gimbalMain.update(supportedAxes: Set(supportedAxes.storableValue))
                     }
                 }
             }
-            gimbal.notifyUpdated()
+            gimbalMain.notifyUpdated()
         }
     }
 
@@ -431,24 +420,24 @@ class GimbalFeatureGimbal: DeviceComponentController {
 
                         maxSpeedRanges.forEach { axis, range in
                             if let currentVal = currentMaxSpeeds.storableValue[axis] {
-                                gimbal.update(maxSpeedSetting: (range.min, currentVal, range.max), onAxis: axis)
+                                gimbalMain.update(maxSpeedSetting: (range.min, currentVal, range.max), onAxis: axis)
                             }
                         }
                     }
                 case .stabilizedAxes:
                     if let stabilizedAxes: StorableArray<GimbalAxis> = presetStore.read(key: setting.key) {
                         GimbalAxis.allCases.forEach { axis in
-                            if gimbal.supportedAxes.contains(axis) {
+                            if gimbalMain.supportedAxes.contains(axis) {
                                 let isStabilized = stabilizedAxes.storableValue.contains(axis)
                                 expectedStabilization[axis] = isStabilized
                                 controlEncoder.set(stabilization: isStabilized, targetAttitude: nil, onAxis: axis)
-                                gimbal.update(stabilization: isStabilized, onAxis: axis)
+                                gimbalMain.update(stabilization: isStabilized, onAxis: axis)
                             }
                         }
                     }
                 }
             }
-            gimbal.notifyUpdated()
+            gimbalMain.notifyUpdated()
         }
     }
 
@@ -489,24 +478,24 @@ class GimbalFeatureGimbal: DeviceComponentController {
                         if currentMaxSpeed?.current != storedMaxSpeed {
                             speedToOverride[axis] = storedMaxSpeed
                         }
-                        gimbal.update(
+                        gimbalMain.update(
                             maxSpeedSetting: (currentMaxSpeed?.min, storedMaxSpeed, currentMaxSpeed?.max), onAxis: axis)
                     }
 
                     // send all values to override (if there is at least one value to override)
                     if !speedToOverride.isEmpty {
                         sendCommand(ArsdkFeatureGimbal.setMaxSpeedEncoder(
-                            gimbalId: GimbalFeatureGimbal.gimbalId,
+                            gimbalId: 0,
                             yaw: Float(speedToOverride[.yaw] ?? maxSpeeds[.yaw]!.current),
                             pitch: Float(speedToOverride[.pitch] ?? maxSpeeds[.pitch]!.current),
                             roll: Float(speedToOverride[.roll] ?? maxSpeeds[.roll]!.current)))
                     }
                 } else {
-                    maxSpeeds.forEach { gimbal.update(maxSpeedSetting: $1, onAxis: $0) }
+                    maxSpeeds.forEach { gimbalMain.update(maxSpeedSetting: $1, onAxis: $0) }
                 }
             case .stabilizedAxes(let stabilizedAxes):
                 if let storedStabilizedAxes: StorableArray<GimbalAxis> = presetStore?.read(key: setting.key) {
-                    gimbal.supportedAxes.forEach { axis in
+                    gimbalMain.supportedAxes.forEach { axis in
                         let storedStab = storedStabilizedAxes.storableValue.contains(axis)
                         let targetAttitude: Double
                         if let bounds = storedStab ? absoluteAttitudeBounds[axis] : relativeAttitudeBounds[axis] {
@@ -526,16 +515,16 @@ class GimbalFeatureGimbal: DeviceComponentController {
                             stabilization: storedStab,
                             targetAttitude: targetAttitude,
                             onAxis: axis)
-                        gimbal.update(stabilization: storedStab, onAxis: axis)
+                        gimbalMain.update(stabilization: storedStab, onAxis: axis)
                     }
                 } else {
-                    gimbal.supportedAxes.forEach {
-                        gimbal.update(stabilization: stabilizedAxes.contains($0), onAxis: $0)
+                    gimbalMain.supportedAxes.forEach {
+                        gimbalMain.update(stabilization: stabilizedAxes.contains($0), onAxis: $0)
                     }
                 }
             }
         }
-        gimbal.notifyUpdated()
+        gimbalMain.notifyUpdated()
     }
 
     /// Called when a command that notify a setting change has been received
@@ -546,7 +535,7 @@ class GimbalFeatureGimbal: DeviceComponentController {
         switch setting {
         case .maxSpeeds(let maxSpeeds):
             if connected {
-                maxSpeeds.forEach { gimbal.update(maxSpeedSetting: $1, onAxis: $0) }
+                maxSpeeds.forEach { gimbalMain.update(maxSpeedSetting: $1, onAxis: $0) }
                 deviceStore?.writeMultiRange(
                     key: setting.key,
                     value: Dictionary(uniqueKeysWithValues: maxSpeeds.map { ($0.key, ($0.value.min, $0.value.max)) }))
@@ -554,15 +543,15 @@ class GimbalFeatureGimbal: DeviceComponentController {
         case .stabilizedAxes(let stabilizedAxes):
             if connected {
                 GimbalAxis.allCases.forEach {
-                    if gimbal.supportedAxes.contains($0) {
-                        gimbal.update(stabilization: stabilizedAxes.contains($0), onAxis: $0)
+                    if gimbalMain.supportedAxes.contains($0) {
+                        gimbalMain.update(stabilization: stabilizedAxes.contains($0), onAxis: $0)
                         controlEncoder.set(stabilization: stabilizedAxes.contains($0), targetAttitude: nil, onAxis: $0)
                     }
                 }
             }
         }
         deviceStore?.commit()
-        gimbal.notifyUpdated()
+        gimbalMain.notifyUpdated()
     }
 
     /// Process stored capabilities changes
@@ -574,18 +563,18 @@ class GimbalFeatureGimbal: DeviceComponentController {
         switch capabilities {
         case .supportedAxes(let axes):
             deviceStore?.write(key: capabilities.key, value: StorableArray(Array(axes)))
-            gimbal.update(supportedAxes: axes)
+            gimbalMain.update(supportedAxes: axes)
 
             // since it should be the first message to be received, update all non-stored infos relative to the axes
-            gimbal.update(lockedAxes: axes)
+            gimbalMain.update(lockedAxes: axes)
             GimbalAxis.allCases.forEach { axis in
-                gimbal.update(axisBounds: nil, onAxis: axis)
-                gimbal.update(absoluteAttitude: nil, onAxis: axis)
-                gimbal.update(relativeAttitude: nil, onAxis: axis)
+                gimbalMain.update(axisBounds: nil, onAxis: axis)
+                gimbalMain.update(absoluteAttitude: nil, onAxis: axis)
+                gimbalMain.update(relativeAttitude: nil, onAxis: axis)
             }
         }
         deviceStore?.commit()
-        gimbal.notifyUpdated()
+        gimbalMain.notifyUpdated()
     }
 }
 
@@ -593,8 +582,13 @@ class GimbalFeatureGimbal: DeviceComponentController {
 extension GimbalFeatureGimbal: GimbalBackend {
 
     func control(mode: GimbalControlMode, yaw: Double?, pitch: Double?, roll: Double?) {
-
         controlEncoder.control(mode: mode, yaw: yaw, pitch: pitch, roll: roll)
+    }
+
+    func resetAttitude() {
+        if let gimbalId = gimbalId {
+            sendCommand(ArsdkFeatureGimbal.resetOrientationEncoder(gimbalId: gimbalId))
+        }
     }
 
     func set(stabilization: Bool, onAxis axis: GimbalAxis) -> Bool {
@@ -611,8 +605,8 @@ extension GimbalFeatureGimbal: GimbalBackend {
         pendingStabilizationChange.insert(axis)
 
         // Update the attitude bounds to take the correct frame of reference according to the new stab
-        gimbal.update(axisBounds: stabilization ? absoluteAttitudeBounds[axis] : relativeAttitudeBounds[axis],
-                    onAxis: axis)
+        gimbalMain.update(axisBounds: stabilization ? absoluteAttitudeBounds[axis] : relativeAttitudeBounds[axis],
+                          onAxis: axis)
 
         if connected {
             let targetAttitude: Double
@@ -635,7 +629,7 @@ extension GimbalFeatureGimbal: GimbalBackend {
                 onAxis: axis)
             return true
         } else {
-            gimbal.update(stabilization: stabilization, onAxis: axis).notifyUpdated()
+            gimbalMain.update(stabilization: stabilization, onAxis: axis).notifyUpdated()
         }
 
         return false
@@ -648,36 +642,28 @@ extension GimbalFeatureGimbal: GimbalBackend {
             if $0 == axis {
                 maxSpeeds[$0] = maxSpeed
             } else {
-                maxSpeeds[$0] = gimbal.maxSpeedSettings[$0]?.value ?? 0.0
+                maxSpeeds[$0] = gimbalMain.maxSpeedSettings[$0]?.value ?? 0.0
             }
         }
         presetStore?.write(key: SettingKey.maxSpeedsKey, value: StorableDict(maxSpeeds)).commit()
 
         if connected {
             sendCommand(ArsdkFeatureGimbal.setMaxSpeedEncoder(
-                gimbalId: GimbalFeatureGimbal.gimbalId, yaw: Float(maxSpeeds[.yaw]!), pitch: Float(maxSpeeds[.pitch]!),
+                gimbalId: gimbalId!, yaw: Float(maxSpeeds[.yaw]!), pitch: Float(maxSpeeds[.pitch]!),
                 roll: Float(maxSpeeds[.roll]!)))
             return true
         } else {
-            gimbal.update(maxSpeedSetting: (min: nil, value: maxSpeed, max: nil), onAxis: axis).notifyUpdated()
+            gimbalMain.update(maxSpeedSetting: (min: nil, value: maxSpeed, max: nil), onAxis: axis).notifyUpdated()
         }
         return false
     }
 
     func startOffsetsCorrectionProcess() {
-        sendCommand(ArsdkFeatureGimbal.startOffsetsUpdateEncoder(gimbalId: GimbalFeatureGimbal.gimbalId))
+        sendCommand(ArsdkFeatureGimbal.startOffsetsUpdateEncoder(gimbalId: gimbalId!))
     }
 
     func stopOffsetsCorrectionProcess() {
-        sendCommand(ArsdkFeatureGimbal.stopOffsetsUpdateEncoder(gimbalId: GimbalFeatureGimbal.gimbalId))
-    }
-
-    func startCalibration() {
-        sendCommand(ArsdkFeatureGimbal.calibrateEncoder(gimbalId: GimbalFeatureGimbal.gimbalId))
-    }
-
-    func cancelCalibration() {
-        sendCommand(ArsdkFeatureGimbal.cancelCalibrationEncoder(gimbalId: GimbalFeatureGimbal.gimbalId))
+        sendCommand(ArsdkFeatureGimbal.stopOffsetsUpdateEncoder(gimbalId: gimbalId!))
     }
 
     func set(offsetCorrection: Double, onAxis axis: GimbalAxis) -> Bool {
@@ -687,13 +673,13 @@ extension GimbalFeatureGimbal: GimbalBackend {
             if $0 == axis {
                 offsetCorrections[$0] = offsetCorrection
             } else {
-                offsetCorrections[$0] = gimbal.offsetsCorrectionProcess?.offsetsCorrection[$0]?.value ?? 0.0
+                offsetCorrections[$0] = gimbalMain.offsetsCorrectionProcess?.offsetsCorrection[$0]?.value ?? 0.0
             }
         }
 
         if connected {
             sendCommand(ArsdkFeatureGimbal.setOffsetsEncoder(
-                gimbalId: GimbalFeatureGimbal.gimbalId, yaw: Float(offsetCorrections[.yaw]!),
+                gimbalId: gimbalId!, yaw: Float(offsetCorrections[.yaw]!),
                 pitch: Float(offsetCorrections[.pitch]!), roll: Float(offsetCorrections[.roll]!)))
             return true
         }
@@ -702,13 +688,16 @@ extension GimbalFeatureGimbal: GimbalBackend {
 }
 
 /// Gimbal decode callback implementation
-extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
-    func onGimbalCapabilities(gimbalId: UInt, model: ArsdkFeatureGimbalModel, axesBitField: UInt) {
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
-            capabilitiesDidChange(.supportedAxes(GimbalAxis.createSetFrom(bitField: axesBitField)))
-            capabilitiesReceived = true
-        } else {
-            ULog.w(.gimbalTag, "Axis capabilities received for an unknown gimbal id=\(gimbalId)")
+extension GimbalFeatureGimbal {
+    override func onGimbalCapabilities(gimbalId: UInt, model: ArsdkFeatureGimbalModel, axesBitField: UInt) {
+        super.onGimbalCapabilities(gimbalId: gimbalId, model: model, axesBitField: axesBitField)
+        if model == .main {
+            if gimbalId == self.gimbalId {
+                capabilitiesDidChange(.supportedAxes(GimbalAxis.createSetFrom(bitField: axesBitField)))
+                capabilitiesReceived = true
+            } else {
+                ULog.w(.gimbalTag, "Axis capabilities received for an unknown gimbal id=\(gimbalId)")
+            }
         }
     }
 
@@ -721,20 +710,20 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
             return
         }
 
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
+        if gimbalId == self.gimbalId {
             // store the values as they might be used later (when axis stabilization changes)
             relativeAttitudeBounds[.yaw] = Double(minYaw)..<Double(maxYaw)
             relativeAttitudeBounds[.pitch] = Double(minPitch)..<Double(maxPitch)
             relativeAttitudeBounds[.roll] = Double(minRoll)..<Double(maxRoll)
 
             // update the bounds on the axes that are not stabilized (i.e.: frame of reference is relative)
-            gimbal.stabilizationSettings.forEach { axis, stabSetting in
+            gimbalMain.stabilizationSettings.forEach { axis, stabSetting in
                 if !stabSetting.value {
-                    _ = gimbal.update(axisBounds: relativeAttitudeBounds[axis], onAxis: axis)
+                    _ = gimbalMain.update(axisBounds: relativeAttitudeBounds[axis], onAxis: axis)
                 }
             }
 
-            gimbal.notifyUpdated()
+            gimbalMain.notifyUpdated()
         } else {
             ULog.w(.gimbalTag, "Relative attitude bounds received for an unknown gimbal id=\(gimbalId)")
         }
@@ -749,20 +738,20 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
             return
         }
 
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
+        if gimbalId == self.gimbalId {
             // store the values as they might be used later (when axis stabilization changes)
             absoluteAttitudeBounds[.yaw] = Double(minYaw)..<Double(maxYaw)
             absoluteAttitudeBounds[.pitch] = Double(minPitch)..<Double(maxPitch)
             absoluteAttitudeBounds[.roll] = Double(minRoll)..<Double(maxRoll)
 
             // update the bounds on the axes that are stabilized (i.e.: frame of reference is absolute)
-            gimbal.stabilizationSettings.forEach { axis, stabSetting in
+            gimbalMain.stabilizationSettings.forEach { axis, stabSetting in
                 if stabSetting.value {
-                    _ = gimbal.update(axisBounds: absoluteAttitudeBounds[axis], onAxis: axis)
+                    _ = gimbalMain.update(axisBounds: absoluteAttitudeBounds[axis], onAxis: axis)
                 }
             }
 
-            gimbal.notifyUpdated()
+            gimbalMain.notifyUpdated()
         } else {
             ULog.w(.gimbalTag, "Absolute attitude bounds received for an unknown gimbal id=\(gimbalId)")
         }
@@ -777,12 +766,12 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
             return
         }
 
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
+        if gimbalId == self.gimbalId {
             settingDidChange(.maxSpeeds([
                 .yaw: (Double(minBoundYaw), Double(currentYaw), Double(maxBoundYaw)),
                 .pitch: (Double(minBoundPitch), Double(currentPitch), Double(maxBoundPitch)),
                 .roll: (Double(minBoundRoll), Double(currentRoll), Double(maxBoundRoll))
-                ]))
+            ]))
         } else {
             ULog.w(.gimbalTag, "Max speed received for an unknown gimbal id=\(gimbalId)")
         }
@@ -805,15 +794,18 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
                 ULog.w(.gimbalTag, "Unknown frame of reference, skipping this event.")
                 return
         }
+        guard !yawRelative.isNaN, !pitchRelative.isNaN, !rollRelative.isNaN,
+            !yawAbsolute.isNaN, !pitchAbsolute.isNaN, !rollAbsolute.isNaN else {
+                ULog.w(.gimbalTag, "Invalid attitude values, skipping this event.")
+                return
+        }
 
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
-
+        if gimbalId == self.gimbalId {
             // store internally the current attitude on each frame of reference
             let decimal = 3
             relativeAttitude[.yaw] = Double(yawRelative).roundedToDecimal(decimal)
             relativeAttitude[.pitch] = Double(pitchRelative).roundedToDecimal(decimal)
             relativeAttitude[.roll] = Double(rollRelative).roundedToDecimal( decimal)
-
             absoluteAttitude[.yaw] = Double(yawAbsolute).roundedToDecimal(decimal)
             absoluteAttitude[.pitch] = Double(pitchAbsolute).roundedToDecimal(decimal)
             absoluteAttitude[.roll] = Double(rollAbsolute).roundedToDecimal(decimal)
@@ -826,7 +818,7 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
             var settingHasChanged = false
 
             if expectedStabilization.isEmpty {
-                expectedStabilization = stabilizedAxes.filter { gimbal.supportedAxes.contains($0.key) }
+                expectedStabilization = stabilizedAxes.filter { gimbalMain.supportedAxes.contains($0.key) }
 
                 settingHasChanged = true
             }
@@ -838,24 +830,21 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
             }
 
             GimbalAxis.allCases.forEach { axis in
-                if gimbal.supportedAxes.contains(axis) {
-
+                if gimbalMain.supportedAxes.contains(axis) {
                     // update the stabilization information according to the frame of reference on each axis
                     // if a change has been previously asked and it matches the desired stabilization
                     // or if it has changed without being asked
                     if pendingStabilizationChange.contains(axis) ==
                         (expectedStabilization[axis] == stabilizedAxes[axis]) {
-
                         // can force unwrap because we know that the axis is supported
                         let isStabilized = stabilizedAxes[axis]!
                         expectedStabilization[axis] = isStabilized
-
                         pendingStabilizationChange.remove(axis)
                         settingHasChanged = true
                     }
 
                     // update the attitude bounds according to the frame reference that has been asked
-                    gimbal.update(
+                    gimbalMain.update(
                         axisBounds: expectedStabilization[axis]! ?
                             absoluteAttitudeBounds[axis] : relativeAttitudeBounds[axis],
                         onAxis: axis)
@@ -870,18 +859,18 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
 
             if settingHasChanged {
                 settingDidChange(.stabilizedAxes(
-                    Set(expectedStabilization.filter { $1 && gimbal.supportedAxes.contains($0) }.keys)))
+                    Set(expectedStabilization.filter { $1 && gimbalMain.supportedAxes.contains($0) }.keys)))
             }
 
-            gimbal.notifyUpdated()
+            gimbalMain.notifyUpdated()
         } else {
             ULog.w(.gimbalTag, "Attitude received for an unknown gimbal id=\(gimbalId)")
         }
     }
 
     func onAxisLockState(gimbalId: UInt, lockedBitField: UInt) {
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
-            gimbal.update(lockedAxes: GimbalAxis.createSetFrom(bitField: lockedBitField)).notifyUpdated()
+        if gimbalId == self.gimbalId {
+            gimbalMain.update(lockedAxes: GimbalAxis.createSetFrom(bitField: lockedBitField)).notifyUpdated()
         } else {
             ULog.w(.gimbalTag, "Axis lock state received for an unknown gimbal id=\(gimbalId)")
         }
@@ -891,15 +880,13 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
         gimbalId: UInt, updateState: ArsdkFeatureGimbalState, minBoundYaw: Float, maxBoundYaw: Float, currentYaw: Float,
         minBoundPitch: Float, maxBoundPitch: Float, currentPitch: Float, minBoundRoll: Float, maxBoundRoll: Float,
         currentRoll: Float) {
-
         guard minBoundYaw <= maxBoundYaw, minBoundPitch <= maxBoundPitch, minBoundRoll <= maxBoundRoll else {
             ULog.w(.gimbalTag, "Offset bounds are not correct, skipping this event.")
             return
         }
-
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
+        if gimbalId == self.gimbalId {
             if updateState == .active {
-                gimbal.update(offsetsCorrectionProcessStarted: true)
+                gimbalMain.update(offsetsCorrectionProcessStarted: true)
                 var calibratableAxes = Set<GimbalAxis>()
                 if minBoundYaw < maxBoundYaw {
                     calibratableAxes.insert(.yaw)
@@ -910,81 +897,32 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
                 if  minBoundRoll < maxBoundRoll {
                     calibratableAxes.insert(.roll)
                 }
-                gimbal.update(calibratableAxes: calibratableAxes)
-
+                gimbalMain.update(calibratableAxes: calibratableAxes)
                 // now that the calibratable axes have been set, the offsets can be set on the component
                 if calibratableAxes.contains(.yaw) {
-                    gimbal.update(
+                    gimbalMain.update(
                         calibrationOffset: (min: Double(minBoundYaw), value: Double(currentYaw),
                                             max: Double(maxBoundYaw)),
                         onAxis: .yaw)
                 }
                 if calibratableAxes.contains(.pitch) {
-                    gimbal.update(
+                    gimbalMain.update(
                         calibrationOffset: (min: Double(minBoundPitch), value: Double(currentPitch),
                                             max: Double(maxBoundPitch)),
                         onAxis: .pitch)
                 }
                 if  calibratableAxes.contains(.roll) {
-                    gimbal.update(
+                    gimbalMain.update(
                         calibrationOffset: (min: Double(minBoundRoll), value: Double(currentRoll),
                                             max: Double(maxBoundRoll)),
                         onAxis: .roll)
                 }
             } else {
-                gimbal.update(offsetsCorrectionProcessStarted: false)
+                gimbalMain.update(offsetsCorrectionProcessStarted: false)
             }
-
-            gimbal.notifyUpdated()
+            gimbalMain.notifyUpdated()
         } else {
             ULog.w(.gimbalTag, "Offsets received for an unknown gimbal id=\(gimbalId)")
-        }
-    }
-
-    func onCalibrationState(state: ArsdkFeatureGimbalCalibrationState, gimbalId: UInt) {
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
-            switch state {
-            case .ok:
-                gimbal.update(calibrated: true).notifyUpdated()
-            case .required:
-                gimbal.update(calibrated: false).notifyUpdated()
-            case .inProgress:
-                gimbal.update(calibrationProcessState: .calibrating).notifyUpdated()
-            case .sdkCoreUnknown:
-                // don't change anything if value is unknown
-                ULog.w(.tag, "Unknown state, skipping this calibration state event.")
-            }
-        } else {
-            ULog.w(.gimbalTag, "Calibration state received for an unknown gimbal id=\(gimbalId)")
-        }
-    }
-
-    func onCalibrationResult(gimbalId: UInt, result: ArsdkFeatureGimbalCalibrationResult) {
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
-            switch result {
-            case .success:
-                gimbal.update(calibrationProcessState: .success).notifyUpdated()
-            case .failure:
-                gimbal.update(calibrationProcessState: .failure).notifyUpdated()
-            case .canceled:
-                gimbal.update(calibrationProcessState: .canceled).notifyUpdated()
-            case .sdkCoreUnknown:
-                // don't change anything if value is unknown
-                ULog.w(.tag, "Unknown state, skipping this calibration result event.")
-                return
-            }
-            // success, failure and canceled status are transient, reset calibration process state to none
-            gimbal.update(calibrationProcessState: .none).notifyUpdated()
-        } else {
-            ULog.w(.gimbalTag, "Calibration result received for an unknown gimbal id=\(gimbalId)")
-        }
-    }
-
-    func onAlert(gimbalId: UInt, errorBitField: UInt) {
-        if gimbalId == GimbalFeatureGimbal.gimbalId {
-            gimbal.update(currentErrors: GimbalError.createSetFrom(bitField: errorBitField)).notifyUpdated()
-        } else {
-            ULog.w(.gimbalTag, "Alerts received for an unknown gimbal id=\(gimbalId)")
         }
     }
 }
@@ -993,14 +931,12 @@ extension GimbalFeatureGimbal: ArsdkFeatureGimbalCallback {
 
 /// Extension that add conversion from/to arsdk enum
 extension GimbalControlMode: ArsdkMappableEnum {
-
     static let arsdkMapper = Mapper<GimbalControlMode, ArsdkFeatureGimbalControlMode>([
         .position: .position,
         .velocity: .velocity])
 }
 
 extension GimbalAxis: ArsdkMappableEnum {
-
     static func createSetFrom(bitField: UInt) -> Set<GimbalAxis> {
         var result = Set<GimbalAxis>()
         ArsdkFeatureGimbalAxisBitField.forAllSet(in: bitField) { arsdkValue in
@@ -1013,23 +949,6 @@ extension GimbalAxis: ArsdkMappableEnum {
 
     static let arsdkMapper = Mapper<GimbalAxis, ArsdkFeatureGimbalAxis>(
         [.yaw: .yaw, .pitch: .pitch, .roll: .roll])
-}
-
-extension GimbalError: ArsdkMappableEnum {
-
-    static func createSetFrom(bitField: UInt) -> Set<GimbalError> {
-        var result = Set<GimbalError>()
-        ArsdkFeatureGimbalErrorBitField.forAllSet(in: bitField) { arsdkValue in
-            if let axis = GimbalError(fromArsdk: arsdkValue) {
-                result.insert(axis)
-            }
-        }
-        return result
-    }
-
-    static let arsdkMapper = Mapper<GimbalError, ArsdkFeatureGimbalError>(
-        [.calibration: .calibrationError, .overload: .overloadError, .communication: .commError,
-         .critical: .criticalError])
 }
 
 extension GimbalAxis: StorableEnum {

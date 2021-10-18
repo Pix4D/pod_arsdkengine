@@ -53,7 +53,7 @@ class EphemerisRestApi {
     }
 
     /// Drone server
-    private let server: DroneServer
+    private unowned let server: DroneServer
 
     /// Constructor
     ///

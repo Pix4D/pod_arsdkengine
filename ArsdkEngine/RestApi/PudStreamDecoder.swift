@@ -269,7 +269,7 @@ class PudStreamDecoder: StreamDecoder {
     ///
     /// - Returns: returns the length of the header if it was found, nil otherwise
     private func detectHeaderLength() -> Int? {
-        return dataToProcess.index(where: { $0 == 0 })
+        return dataToProcess.firstIndex(where: { $0 == 0 })
     }
 
     /// Process data received in the header of the flight data file.
@@ -512,23 +512,23 @@ extension Data {
     func getInt(at index: Int, size: Int ) -> Int {
         switch size {
         case 2:
-            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes { (ptr: UnsafePointer<Int16>)  in
-                ptr.pointee
+            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes {
+                $0.load(as: Int16.self)
             }
             return Int(ret)
         case 4:
-            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes { (ptr: UnsafePointer<Int32>)  in
-                ptr.pointee
+            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes {
+                $0.load(as: Int32.self)
             }
             return Int(ret)
         case 8:
-            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes { (ptr: UnsafePointer<Int64>)  in
-                ptr.pointee
+            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes {
+                $0.load(as: Int64.self)
             }
             return Int(ret)
         default: // 1
-            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes { (ptr: UnsafePointer<Int8>)  in
-                ptr.pointee
+            let ret = self.subdata(in: index ..< (index + size)).withUnsafeBytes {
+                $0.load(as: Int8.self)
             }
             return Int(ret)
         }
@@ -542,8 +542,8 @@ extension Data {
     func getFloat32(at index: Int) -> Float32 {
         let retFloat: Float32
 
-            let ret = self.subdata(in: index ..< (index + 4)).withUnsafeBytes { (ptr: UnsafePointer<Float32>)  in
-                ptr.pointee
+            let ret = self.subdata(in: index ..< (index + 4)).withUnsafeBytes {
+                $0.load(as: Float32.self)
             }
             retFloat = ret
 
@@ -556,8 +556,8 @@ extension Data {
     func getFloat64(at index: Int) -> Float64 {
         let retFloat: Float64
 
-        let ret = self.subdata(in: index ..< (index + 8)).withUnsafeBytes { (ptr: UnsafePointer<Float64>)  in
-            ptr.pointee
+        let ret = self.subdata(in: index ..< (index + 8)).withUnsafeBytes {
+            $0.load(as: Float64.self)
         }
         retFloat = ret
 

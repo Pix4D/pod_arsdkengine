@@ -101,17 +101,14 @@ extension MediaWsApi: WebSocketSessionDelegate {
     }
 
     func webSocketSessionDidDisconnect() {
-        // Unexpected disconnect, retry
+        // Unexpected disconnect, or connection could not be established, retry
         webSocketSession = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) { [weak self] in
             self?.startSession()
         }
     }
 
-    func webSocketSessionConnectionDidFail() {
-        // Connection failure, retry
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(1)) { [weak self] in
-            self?.startSession()
-        }
+    func webSocketSessionConnectionHasError() {
+        // An error occurred, ignoring
     }
 }

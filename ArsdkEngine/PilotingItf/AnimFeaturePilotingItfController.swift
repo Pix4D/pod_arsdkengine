@@ -31,7 +31,7 @@ import Foundation
 import GroundSdk
 
 /// Animation piloting interface component controller base class
-class AnimFeaturePilotingItfController: DeviceComponentController {
+class AnimFeaturePilotingItfController: DeviceComponentController, PilotingItfActivationControllerObserver {
 
     /// Animation piloting itf component
     private var animationPilotingItf: AnimationPilotingItfCore!
@@ -39,12 +39,22 @@ class AnimFeaturePilotingItfController: DeviceComponentController {
     /// Cached current animation type
     private var animationType = ArsdkFeatureAnimationType.none
 
+    private var supportedAnimations: [PilotingMode: Set<AnimationType>] = [:]
+    private var issueForAnimationType: [AnimationType: Set<AnimationIssue>] = [:]
+
+    private var pilotingItfActivationController: PilotingItfActivationController
+
     /// Constructor
     ///
     /// - Parameter droneController: drone controller owning this component controller (weak)
-    init(droneController: DroneController) {
-        super.init(deviceController: droneController)
+    init(activationController: PilotingItfActivationController) {
+        self.pilotingItfActivationController = activationController
+        super.init(deviceController: activationController.droneController)
         animationPilotingItf = AnimationPilotingItfCore(store: deviceController.device.pilotingItfStore, backend: self)
+    }
+
+    override func willConnect() {
+        self.pilotingItfActivationController.addObserver(observer: self)
     }
 
     override func didConnect() {
@@ -52,6 +62,11 @@ class AnimFeaturePilotingItfController: DeviceComponentController {
     }
 
     override func didDisconnect() {
+        supportedAnimations.removeAll()
+        issueForAnimationType.removeAll()
+        animationPilotingItf.update(issueForAnimationType: issueForAnimationType)
+            .update(supportedAnimations: supportedAnimations)
+        self.pilotingItfActivationController.removeObserver(observer: self)
         animationPilotingItf.unpublish()
     }
 
@@ -59,6 +74,51 @@ class AnimFeaturePilotingItfController: DeviceComponentController {
         if ArsdkCommand.getFeatureId(command) == kArsdkFeatureAnimationUid {
             ArsdkFeatureAnimation.decode(command, callback: self)
         }
+    }
+
+    /// Observer for current piloting interface changed
+    func currentPilotingItfChanged() {
+        updateAvailableAnimations()
+        animationPilotingItf.notifyUpdated()
+    }
+
+    /// Update available animations
+    private func updateAvailableAnimations() {
+        guard !supportedAnimations.isEmpty else {
+            return
+        }
+        switch self.pilotingItfActivationController.currentPilotingItf {
+        case is HttpFlightPlanPilotingItfController:
+            animationPilotingItf.update(
+                availableAnimations: getAvailableAnimations(supportedAnimations[.flightPlan]))
+        case is AutoLookAtPilotingItf, is FollowFeatureLookAtPilotingItf:
+            animationPilotingItf.update(availableAnimations: getAvailableAnimations(supportedAnimations[.lookAt]))
+        case is AutoFollowPilotingItf, is FollowFeatureFollowMePilotingItf:
+            animationPilotingItf.update(
+                availableAnimations: getAvailableAnimations(supportedAnimations[.followMe]))
+        case is AnafiPoiPilotingItf:
+            animationPilotingItf.update(availableAnimations: getAvailableAnimations(supportedAnimations[.poi]))
+        case is AnafiCopterManualPilotingItf:
+            animationPilotingItf.update(availableAnimations: getAvailableAnimations(supportedAnimations[.manual]))
+        default:
+            break
+        }
+    }
+
+    /// Get available animations without issues
+    ///
+    /// - Parameter animations: set of animations
+    /// - Returns: set of animations available
+    private func getAvailableAnimations(_ animations: Set<AnimationType>?) -> Set<AnimationType> {
+
+        var availableAnimation: Set<AnimationType> = []
+        if let animations = animations,
+           !issueForAnimationType.isEmpty {
+            for anim in animations where issueForAnimationType[anim]?.isEmpty ?? true {
+                availableAnimation.insert(anim)
+            }
+        }
+        return availableAnimation
     }
 
     /// Start an horizontal panorama animation.
@@ -464,6 +524,11 @@ class AnimFeaturePilotingItfController: DeviceComponentController {
         sendCommand(ArsdkFeatureAnimation.startSphericalPhotoPanoramaEncoder())
         return true
     }
+
+    private func startSuperWidePhotoPanorama(_ config: SuperWidePhotoPanoramaAnimationConfig) -> Bool {
+        sendCommand(ArsdkFeatureAnimation.startSuperWidePhotoPanoramaEncoder())
+        return true
+    }
 }
 
 /// Extension of AnimFeaturePilotingItfController that implements the backend methods
@@ -500,6 +565,8 @@ extension AnimFeaturePilotingItfController: AnimationPilotingItfBackend {
             return startVertical180PhotoPanorama(config as! Vertical180PhotoPanoramaAnimationConfig)
         case .sphericalPhotoPanorama:
             return startSphericalPhotoPanorama(config as! SphericalPhotoPanoramaAnimationConfig)
+        case .superWidePhotoPanorama:
+            return startSuperWidePhotoPanorama(config as! SuperWidePhotoPanoramaAnimationConfig)
         case .unidentified:
             break
         }
@@ -515,6 +582,92 @@ extension AnimFeaturePilotingItfController: AnimationPilotingItfBackend {
 
 /// Extension of AnimFeaturePilotingItfController that implements the animation feature callbacks
 extension AnimFeaturePilotingItfController: ArsdkFeatureAnimationCallback {
+
+    func onCapabilities(mode: ArsdkFeatureAnimationMode, typeBitField: UInt, listFlagsBitField: UInt) {
+        var pilotingMode: PilotingMode?
+        switch mode {
+        case .flightPlan:
+            pilotingMode = .flightPlan
+        case .followMe:
+            pilotingMode = .followMe
+        case .manual:
+            pilotingMode = .manual
+        case .poi:
+            pilotingMode = .poi
+        case .lookAt:
+            pilotingMode = .lookAt
+        case .sdkCoreUnknown:
+            break
+        @unknown default:
+            break
+        }
+        if pilotingMode == nil || supportedAnimations[pilotingMode!] != nil {
+            return
+        }
+        if ArsdkFeatureGenericListFlagsBitField.isSet(.first, inBitField: listFlagsBitField) {
+            supportedAnimations = [:]
+        }
+        supportedAnimations[pilotingMode!] = AnimationType.createSetFrom(bitField: typeBitField)
+
+        if ArsdkFeatureGenericListFlagsBitField.isSet(.last, inBitField: listFlagsBitField) {
+            updateAvailableAnimations()
+            animationPilotingItf.update(supportedAnimations: supportedAnimations).notifyUpdated()
+        }
+    }
+
+    func onInfo(type: ArsdkFeatureAnimationType, missingInputsBitField: UInt, listFlagsBitField: UInt) {
+        if ArsdkFeatureGenericListFlagsBitField.isSet(.first, inBitField: listFlagsBitField) {
+            issueForAnimationType.removeAll()
+        }
+        var animation: AnimationType?
+        switch type {
+        case .candle:
+            animation = .candle
+        case .dollySlide:
+            animation = .dollySlide
+        case .dronie:
+            animation = .dronie
+        case .flip:
+            animation = .flip
+        case .horizontalPanorama:
+            animation = .horizontalPanorama
+        case .horizontalReveal:
+            animation = .horizontalReveal
+        case .parabola:
+            animation = .parabola
+        case .spiral:
+            animation = .spiral
+        case .verticalReveal:
+            animation = .verticalReveal
+        case .vertigo:
+            animation = .vertigo
+        case .twistUp:
+            animation = .twistUp
+        case .positionTwistUp:
+            animation = .positionTwistUp
+        case .horizontal180PhotoPanorama:
+            animation = .horizontal180PhotoPanorama
+        case .vertical180PhotoPanorama:
+            animation = .vertical180PhotoPanorama
+        case .sphericalPhotoPanorama:
+            animation = .sphericalPhotoPanorama
+        case .superWidePhotoPanorama:
+            animation = .superWidePhotoPanorama
+        case .sdkCoreUnknown,
+             .none:
+            fallthrough
+        @unknown default:
+            break
+        }
+        if animation == nil {
+            return
+        }
+        issueForAnimationType[animation!] = AnimationIssue.createSetFrom(bitField: missingInputsBitField)
+        if ArsdkFeatureGenericListFlagsBitField.isSet(.last, inBitField: listFlagsBitField) {
+            updateAvailableAnimations()
+            animationPilotingItf.update(issueForAnimationType: issueForAnimationType).notifyUpdated()
+        }
+    }
 
     func onAvailability(valuesBitField: UInt) {
         var availableAnimations: Set<AnimationType> = []
@@ -562,6 +715,9 @@ extension AnimFeaturePilotingItfController: ArsdkFeatureAnimationCallback {
         }
         if ArsdkFeatureAnimationTypeBitField.isSet(.sphericalPhotoPanorama, inBitField: valuesBitField) {
             availableAnimations.insert(.sphericalPhotoPanorama)
+        }
+        if ArsdkFeatureAnimationTypeBitField.isSet(.superWidePhotoPanorama, inBitField: valuesBitField) {
+            availableAnimations.insert(.superWidePhotoPanorama)
         }
 
         animationPilotingItf.update(availableAnimations: availableAnimations).notifyUpdated()
@@ -795,6 +951,14 @@ extension AnimFeaturePilotingItfController: ArsdkFeatureAnimationCallback {
                                         status: AnimationStatus.from(state)).notifyUpdated()
         }
     }
+
+    func onSuperWidePhotoPanoramaState(state: ArsdkFeatureAnimationState) {
+        if state != .idle {
+            animationType = .superWidePhotoPanorama
+            animationPilotingItf.update(animation: SuperWidePhotoPanoramaCore(),
+                                        status: AnimationStatus.from(state)).notifyUpdated()
+        }
+    }
 }
 
 /// Extension of AnimationType that converts ArsdkFeatureAnimationType into AnimationType
@@ -835,8 +999,12 @@ extension AnimationType {
             return .vertical180PhotoPanorama
         case .sphericalPhotoPanorama:
             return .sphericalPhotoPanorama
+        case .superWidePhotoPanorama:
+            return .superWidePhotoPanorama
         case .sdkCoreUnknown,
              .none:
+            fallthrough
+        @unknown default:
             return nil
         }
     }
@@ -896,6 +1064,8 @@ fileprivate extension FlipAnimationDirection {
         case .right:
             return .right
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             return nil
         }
     }
@@ -912,4 +1082,68 @@ fileprivate extension FlipAnimationDirection {
             return .right
         }
     }
+}
+
+extension AnimationIssue: ArsdkMappableEnum {
+
+    /// Create set of animation issues from all values set in a bitfield
+    ///
+    /// - Parameter bitField: arsdk bitfield
+    /// - Returns: set containing all animation issues set in bitField
+    static func createSetFrom(bitField: UInt) -> Set<AnimationIssue> {
+        var result = Set<AnimationIssue>()
+        ArsdkFeatureAnimationIndicatorBitField.forAllSet(in: UInt(bitField)) { arsdkValue in
+            if let state = AnimationIssue(fromArsdk: arsdkValue) {
+                result.insert(state)
+            }
+        }
+        return result
+    }
+    static var arsdkMapper = Mapper<AnimationIssue, ArsdkFeatureAnimationIndicator>([
+        .droneNotFlying: .droneFlying,
+        .droneNotCalibrated: .droneMagneto,
+        .droneGpsInfoInaccurate: .droneGps,
+        .droneTooCloseToTarget: .droneTargetDistanceMin,
+        .droneTooCloseToGround: .droneMinAltitude,
+        .targetGpsInfoInaccurate: .targetPositionAccuracy,
+        .targetDetectionInfoMissing: .targetImageDetection,
+        .droneAboveMaxAltitude: .droneMaxAltitude,
+        .droneOutOfGeofence: .droneGeofence,
+        .droneTooFarFromTarget: .droneTargetDistanceMax,
+        .targetHorizontalSpeedKO: .targetHorizSpeed,
+        .targetVerticalSpeedKO: .targetVertSpeed,
+        .targetAltitudeAccuracyKO: .targetAltitudeAccuracy])
+}
+
+extension AnimationType: ArsdkMappableEnum {
+    /// Create set of animation type from all value set in a bitfield
+    ///
+    /// - Parameter bitField: arsdk bitfield
+    /// - Returns: set containing all animation type set in bitField
+    static func createSetFrom(bitField: UInt) -> Set<AnimationType> {
+        var result = Set<AnimationType>()
+        ArsdkFeatureAnimationTypeBitField.forAllSet(in: UInt(bitField)) { arsdkValue in
+            if let state = AnimationType(fromArsdk: arsdkValue) {
+                result.insert(state)
+            }
+        }
+        return result
+    }
+    static var arsdkMapper = Mapper<AnimationType, ArsdkFeatureAnimationType>([
+        .candle: .candle,
+        .dollySlide: .dollySlide,
+        .dronie: .dronie,
+        .flip: .flip,
+        .horizontalPanorama: .horizontalPanorama,
+        .horizontalReveal: .horizontalReveal,
+        .parabola: .parabola,
+        .verticalReveal: .verticalReveal,
+        .vertigo: .vertigo,
+        .twistUp: .twistUp,
+        .positionTwistUp: .positionTwistUp,
+        .horizontal180PhotoPanorama: .horizontal180PhotoPanorama,
+        .vertical180PhotoPanorama: .vertical180PhotoPanorama,
+        .sphericalPhotoPanorama: .sphericalPhotoPanorama,
+        .superWidePhotoPanorama: .superWidePhotoPanorama
+        ])
 }

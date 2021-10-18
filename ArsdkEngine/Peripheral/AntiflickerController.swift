@@ -62,6 +62,11 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
     /// Current frequency given by auto mode. Nil if unknown.
     private var autoModeCurrentFrequency: AntiflickerMode?
 
+    /// `true` when connection state allows to send antiflicker commands to drone.
+    var canSendCommand: Bool {
+        connected
+    }
+
     /// All settings that can be stored
     enum SettingKey: String, StoreKey {
         case modeKey = "mode"
@@ -104,7 +109,7 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
     }
 
     /// Setting values as received from the drone
-    private var droneSettings = Set<Setting>()
+    public var droneSettings = Set<Setting>()
 
     /// Constructor
     ///
@@ -135,7 +140,7 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
     /// - Returns: true if the command has been sent, false if not connected and the value has been changed immediately
     func set(mode: AntiflickerMode) -> Bool {
         presetStore?.write(key: SettingKey.modeKey, value: mode).commit()
-        if connected {
+        if canSendCommand {
             if mode == .auto && !droneSupportsAutoMode {
                 return startCountryMonitoring()
             } else {
@@ -152,9 +157,8 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
     ///
     /// - Parameters:
     ///   - mode: requested mode.
-    ///   - locationBasedValue: if mode is auto, the corresponding value set from current location.
     /// - Returns: true if the command has been sent
-    func sendModeCommand(_ mode: AntiflickerMode, locationBasedValue: AntiflickerValue? = nil) -> Bool {
+    func sendModeCommand(_ mode: AntiflickerMode) -> Bool {
         return false
     }
 
@@ -202,7 +206,7 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
         // reload preset store
         presetStore = deviceController.presetStore.getSettingsStore(key: AntiflickerController.settingKey)
         loadPresets()
-        if connected {
+        if canSendCommand {
             applyPresets()
         }
     }
@@ -238,11 +242,11 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
     /// Apply a preset
     ///
     /// Iterate settings received during connection
-    private func applyPresets() {
+    public func applyPresets() {
         // iterate settings received during the connection
         for setting in droneSettings {
             switch setting {
-            case .mode (let mode):
+            case .mode(let mode):
                 if let preset: AntiflickerMode = presetStore?.read(key: setting.key) {
                     if preset == .auto && !droneSupportsAutoMode {
                         _ = startCountryMonitoring()
@@ -271,7 +275,7 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
         droneSettings.insert(setting)
         switch setting {
         case .mode(let mode):
-             if connected {
+             if canSendCommand {
                 if mode == .auto && !droneSupportsAutoMode {
                     _ = startCountryMonitoring()
                 } else {
@@ -317,18 +321,18 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
 
     /// Starts monitoring current country changes in case it is stopped.
     private func startCountryMonitoring() -> Bool {
-        // se to true by default, because if the country is not know for the moment, no command will be sent so setting
+        // set to true by default, because if the country is not know for the moment, no command will be sent so setting
         // should be marked as updating.
         // Note that if country is known, monitor will be synchronously called so cmdSent.
         var cmdSent = true
         if reverseGeocoderMonitor == nil {
             reverseGeocoderMonitor = reverseGeocoder?.startReverseGeocoderMonitoring { [unowned self] placemark in
-                if let locationBasedValue = self.getAntiflickerValue(forIsoCountryCode: placemark?.isoCountryCode) {
-                   cmdSent = self.applyAutoMode(withLocationBasedValue: locationBasedValue)
+                if let locationBasedValue = getAntiflickerValue(forIsoCountryCode: placemark?.isoCountryCode) {
+                   cmdSent = applyAutoMode(withLocationBasedValue: locationBasedValue)
                 }
             }
         } else {
-            if let locationBasedValue = self.getAntiflickerValue(
+            if let locationBasedValue = getAntiflickerValue(
                 forIsoCountryCode: reverseGeocoder?.placemark?.isoCountryCode) {
 
                 cmdSent = applyAutoMode(withLocationBasedValue: locationBasedValue)
@@ -342,12 +346,18 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
     /// - Parameter locationBasedValue: location based antiflicker value
     /// - Returns: true if value has been sent to the drone.
     private func applyAutoMode(withLocationBasedValue locationBasedValue: AntiflickerValue) -> Bool {
-        if connected {
-            // if command is not sent, update the api
-            if !sendModeCommand(.auto, locationBasedValue: locationBasedValue) {
-                antiflicker.update(mode: .auto).notifyUpdated()
-                return false
+        if canSendCommand {
+            var sent = false
+            if antiflicker.value != locationBasedValue,
+               let locationBasedMode = locationBasedValue.mode {
+                sent = sendModeCommand(locationBasedMode)
             }
+
+            // if command is not sent, update the api
+            if !sent {
+                antiflicker.update(mode: .auto).notifyUpdated()
+            }
+            return sent
         }
         return true
     }
@@ -374,11 +384,27 @@ class AntiflickerController: DeviceComponentController, AntiflickerBackend {
     }
 }
 
-// Extension to make AntiflickerMode storable
+/// Extension to make AntiflickerMode storable.
 extension AntiflickerMode: StorableEnum {
     static var storableMapper = Mapper<AntiflickerMode, String>([
         .off: "off",
         .mode50Hz: "50Hz",
         .mode60Hz: "60Hz",
         .auto: "auto"])
+}
+
+/// Extension to convert AntiflickerValue to AntiflickerMode.
+extension AntiflickerValue {
+    var mode: AntiflickerMode? {
+        switch self {
+        case .off:
+            return .off
+        case .value50Hz:
+            return .mode50Hz
+        case .value60Hz:
+            return .mode60Hz
+        default:
+            return nil
+        }
+    }
 }

@@ -207,7 +207,7 @@ class PreciseHomeController: DeviceComponentController, PreciseHomeBackend {
         // iterate settings received during the connection
         for setting in droneSettings {
             switch setting {
-            case .mode (let mode):
+            case .mode(let mode):
                 if let preset: PreciseHomeMode = presetStore?.read(key: setting.key) {
                     if preset != mode {
                          _ = sendModeCommand(preset)
@@ -296,6 +296,8 @@ extension PreciseHomeController: ArsdkFeaturePreciseHomeCallback {
             // precise home is unavailable
             preciseHome.update(state: .unavailable).notifyUpdated()
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change the precise home state
             ULog.w(.tag, "Unknown precise home state, skipping this event.")
         }
@@ -307,6 +309,8 @@ extension PreciseHomeController: ArsdkFeaturePreciseHomeCallback {
         case .disabled:
              settingDidChange(.mode(.disabled))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change the precise home modes
             ULog.w(.tag, "Unknown precise home mode, skipping this event.")
         }

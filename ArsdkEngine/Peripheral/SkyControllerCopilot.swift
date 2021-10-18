@@ -149,7 +149,7 @@ class SkyControllerCopilot: DeviceComponentController, CopilotBackend {
         // iterate settings received during the connection
         for setting in droneSettings {
             switch setting {
-            case .value (let value):
+            case .value(let value):
                 if let preset: CopilotSource = presetStore?.read(key: setting.key) {
                     if preset != value {
                         _ = sendCopilotCommand(preset)
@@ -210,6 +210,8 @@ extension SkyControllerCopilot: ArsdkFeatureSkyctrlCopilotingstateCallback {
         case .controller:
             settingDidChange(.value(.application))
         case .sdkCoreUnknown:
+            fallthrough
+        @unknown default:
             // don't change the piloting source
             ULog.w(.tag, "Unknown copilot source, skipping this event.")
         }
