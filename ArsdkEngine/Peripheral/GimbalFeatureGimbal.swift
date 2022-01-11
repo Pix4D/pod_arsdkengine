@@ -61,6 +61,8 @@ class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
         private var stabilizationsInternalEncoder: [GimbalAxis: Bool] = [:]
         /// Desired targets. Value for an axis is nil if this axis should not be controlled
         private var targetInternalEncoder: [GimbalAxis: Double] = [:]
+        /// Whether ongoing gimbal control commands are cancelled.
+        private var controlCancelled = false
 
         // pomp loop only vars
         private var latestControlModeInternalEncoder = ArsdkFeatureGimbalControlMode.position
@@ -87,13 +89,15 @@ class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
                 var target: [GimbalAxis: Double] = [:]
                 var valueAttitudeReceivedFirstTime = false
                 var valuesAtittudeChangedByUser = false
+                var cancelled = false
                 // set the local var in a synchronized queue
                 self.queue.sync {
-                    controlMode = self.controlModeInternalEncoder
-                    stabilizations = self.stabilizationsInternalEncoder
-                    target = self.targetInternalEncoder
-                    valueAttitudeReceivedFirstTime = self.valueAttitudeReceivedFirstTimeInternalEncoder
-                    valuesAtittudeChangedByUser = self.encoderValuesUpdated
+                    controlMode = controlModeInternalEncoder
+                    stabilizations = stabilizationsInternalEncoder
+                    target = targetInternalEncoder
+                    valueAttitudeReceivedFirstTime = valueAttitudeReceivedFirstTimeInternalEncoder
+                    valuesAtittudeChangedByUser = encoderValuesUpdated
+                    cancelled = controlCancelled
                 }
 
                 /// if no new value has been set by user after connection to drone, we return immediately.
@@ -101,26 +105,33 @@ class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
                     return nil
                 }
 
-                // if control, target or stabilization has changed
-                if self.latestControlModeInternalEncoder != controlMode ||
-                    self.latestStabilizationsInternalEncoder != stabilizations ||
-                    self.latestTargetInternalEncoder != target {
+                if cancelled {
+                    latestControlModeInternalEncoder = .position
+                    latestStabilizationsInternalEncoder = [:]
+                    latestTargetInternalEncoder = [:]
+                    return nil
+                }
 
-                    self.latestControlModeInternalEncoder = controlMode
-                    self.latestStabilizationsInternalEncoder = stabilizations
-                    self.latestTargetInternalEncoder = target
-                    self.sentCnt = self.maxRepeatedSent
+                // if control, target or stabilization has changed
+                if latestControlModeInternalEncoder != controlMode ||
+                    latestStabilizationsInternalEncoder != stabilizations ||
+                    latestTargetInternalEncoder != target {
+
+                    latestControlModeInternalEncoder = controlMode
+                    latestStabilizationsInternalEncoder = stabilizations
+                    latestTargetInternalEncoder = target
+                    sentCnt = maxRepeatedSent
                 }
 
                 let allTargetsAreZero = (target.values.reduce(0.0, +) == 0)
                 // only decrement the counter if the control is in position,
                 // or, if the control is in velocity and all velocity targets are null or zero
-                if self.sentCnt >= 0 && (controlMode == .position || allTargetsAreZero) {
-                    self.sentCnt -= 1
+                if sentCnt >= 0 && (controlMode == .position || allTargetsAreZero) {
+                    sentCnt -= 1
                 }
 
                 // if sendCnt is under 0, command is not sent
-                if self.sentCnt >= 0 {
+                if sentCnt >= 0 {
                     var frameOfReferences: [GimbalAxis: ArsdkFeatureGimbalFrameOfReference] = [:]
                     GimbalAxis.allCases.forEach {
                         if let stabilization = stabilizations[$0], target[$0] != nil {
@@ -152,6 +163,7 @@ class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
         ///   - roll: roll target, nil if roll should not be changed
         func control(mode: GimbalControlMode, yaw: Double?, pitch: Double?, roll: Double?) {
             queue.sync {
+                controlCancelled = false
                 controlModeInternalEncoder = mode.arsdkValue!
                 targetInternalEncoder[.yaw] = yaw
                 targetInternalEncoder[.pitch] = pitch
@@ -169,6 +181,7 @@ class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
         ///   - axis: the axis
         func set(stabilization: Bool, targetAttitude: Double?, onAxis axis: GimbalAxis) {
             queue.sync {
+                controlCancelled = false
                 stabilizationsInternalEncoder[axis] = stabilization
                 if valueAttitudeReceivedFirstTimeInternalEncoder {
                     GimbalAxis.allCases.forEach {
@@ -194,6 +207,7 @@ class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
         /// - Parameter stabilizations: initial stabilizations
         func setInitialStabilizations(_ stabilizations: [GimbalAxis: Bool]) {
             queue.sync {
+                controlCancelled = false
                 latestControlModeInternalEncoder = .position
                 latestStabilizationsInternalEncoder = stabilizations
                 GimbalAxis.allCases.forEach {
@@ -205,8 +219,16 @@ class GimbalFeatureGimbal: GimbalFeatureCalibratableGimbal {
             }
         }
 
+        /// Cancels ongoing gimbal control commands, if any.
+        func cancelControl() {
+            queue.sync {
+                controlCancelled = true
+            }
+        }
+
         func reset() {
             queue.sync {
+                controlCancelled = false
                 stabilizationsInternalEncoder = [:]
                 latestStabilizationsInternalEncoder = [:]
                 targetInternalEncoder = [:]
@@ -587,6 +609,7 @@ extension GimbalFeatureGimbal: GimbalBackend {
 
     func resetAttitude() {
         if let gimbalId = gimbalId {
+            controlEncoder.cancelControl()
             sendCommand(ArsdkFeatureGimbal.resetOrientationEncoder(gimbalId: gimbalId))
         }
     }

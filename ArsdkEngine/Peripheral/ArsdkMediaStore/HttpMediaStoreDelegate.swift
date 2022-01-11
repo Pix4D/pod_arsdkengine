@@ -105,6 +105,13 @@ class HttpMediaStoreDelegate: NSObject, MediaStoreDelegate {
                                                completion: completion)
     }
 
+    func upload(resourceUrl: URL, target: MediaItemCore,
+                progress: @escaping (_ progressValue: Int) -> Void,
+                completion: @escaping (Bool) -> Void) -> CancelableCore? {
+        return mediaRestApi?.upload(resourceUrl: resourceUrl, target: target, progress: progress,
+                                    completion: completion)
+    }
+
     func delete(media: MediaItemCore, completion: @escaping (Bool) -> Void) -> CancelableCore? {
         return mediaRestApi?.deleteMedia(media, completion: completion)
     }

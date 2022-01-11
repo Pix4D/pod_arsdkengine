@@ -76,7 +76,9 @@ class MediaRestApi {
                     // need to override the way date are parsed because default format is iso8601 extended
                     decoder.dateDecodingStrategy = .formatted(.iso8601Base)
                     do {
-                        let mediaList = try decoder.decode([Media].self, from: data)
+                        // decode the media list, failed media will be ignored
+                        let throwables = try decoder.decode([Throwable<Media>].self, from: data)
+                        let mediaList = throwables.compactMap { try? $0.result.get() }
                         // transform the json object media list into a `MediaItemCore` list
                         let medias = mediaList.map { MediaItemCore.from(httpMedia: $0) }.compactMap { $0 }
                         completion(medias)
@@ -207,6 +209,31 @@ class MediaRestApi {
         return nil
     }
 
+    /// Uploads a resource.
+    ///
+    /// - Parameters:
+    ///   - resourceUrl: the resource file to upload
+    ///   - target: target media item to attach uploaded resource files to
+    ///   - progress: progress callback
+    ///   - progressValue: the progress value, from 0 to 100
+    ///   - completion: completion callback
+    /// - Returns: the request
+    func upload(
+        resourceUrl: URL, target: MediaItemCore, progress: @escaping (_ progressValue: Int) -> Void,
+        completion: @escaping (_ success: Bool) -> Void) -> CancelableCore? {
+        return server.putFile(api: "\(baseApi)/medias/\(target.uid)",
+                              fileUrl: resourceUrl,
+                              progress: progress,
+                              completion: { result, _ in
+                                switch result {
+                                case .success:
+                                    completion(true)
+                                default:
+                                    completion(false)
+                                }
+                              })
+    }
+
     /// Delete a given media on the device
     ///
     /// - Parameters:
@@ -319,6 +346,31 @@ class MediaRestApi {
         let expectedCount: UInt64?
         /// `true` when the media contains thermal metadata, `false` otherwise.
         let thermal: Bool?
+
+        /// Custom initializer which allows to safely decode the resource array, ignoring the ones that could not be
+        /// decoded and keeping the others.
+        ///
+        /// - Parameter decoder: the decoder to read data from
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            mediaId = try values.decode(String.self, forKey: .mediaId)
+            type = try values.decode(MediaType.self, forKey: .type)
+            date = try values.decode(Date.self, forKey: .date)
+            size = try values.decode(Int64.self, forKey: .size)
+            duration = try values.decodeIfPresent(Int64.self, forKey: .duration)
+            runId = try values.decode(String.self, forKey: .runId)
+            customId = try values.decodeIfPresent(String.self, forKey: .customId)
+            customTitle = try values.decodeIfPresent(String.self, forKey: .customTitle)
+            thumbnailUrlStr = try values.decodeIfPresent(String.self, forKey: .thumbnailUrlStr)
+            streamUrlStr = try values.decodeIfPresent(String.self, forKey: .streamUrlStr)
+            location = try values.decodeIfPresent(Location.self, forKey: .location)
+            photoMode = try values.decodeIfPresent(PhotoMode.self, forKey: .photoMode)
+            panoramaType = try values.decodeIfPresent(PanoramaType.self, forKey: .panoramaType)
+            expectedCount = try values.decodeIfPresent(UInt64.self, forKey: .expectedCount)
+            thermal = try values.decodeIfPresent(Bool.self, forKey: .thermal)
+            let throwables = try values.decode([Throwable<MediaResource>].self, forKey: .resources)
+            resources = throwables.compactMap { try? $0.result.get() }
+        }
     }
 
     /// MediaTypes as described by the REST api.
@@ -389,6 +441,7 @@ class MediaRestApi {
     fileprivate enum ResourceType: String, Decodable {
         case photo = "PHOTO"
         case video = "VIDEO"
+        case panorama = "PANO"
     }
 
     /// Resource format as described by the REST api
@@ -482,7 +535,8 @@ fileprivate extension MediaItemResourceCore {
     /// - Parameter httpResource: the http resource
     /// - Returns: a resource if the http resource is compatible with the MediaItemResource declaration
     static func from(httpResource: MediaRestApi.MediaResource) -> MediaItemResourceCore? {
-        if let format = formatMapper.map(from: httpResource.format) {
+        if let type = typeMapper.map(from: httpResource.type),
+           let format = formatMapper.map(from: httpResource.format) {
             let duration = httpResource.duration.flatMap {Double($0)/1000}
             var location: CLLocation?
             if let httpLocation = httpResource.location {
@@ -501,13 +555,19 @@ fileprivate extension MediaItemResourceCore {
             let metadataTypes: Set<MediaItem.MetadataType> = httpResource.thermal == true ? [.thermal] : []
             let signed = httpResource.signatureUrlStr != nil
             return MediaItemResourceCore(
-                uid: httpResource.resId, format: format, size: httpResource.size, duration: duration,
+                uid: httpResource.resId, type: type, format: format, size: httpResource.size, duration: duration,
                 streamUrl: httpResource.streamUrlStr, backendData: httpResource, location: location,
                 creationDate: httpResource.date, metadataTypes: metadataTypes,
                 storage: storage, signed: signed)
         }
         return nil
     }
+
+    /// Mapper that maps resource type from the REST api to the `MediaItem.ResourceType`
+    static let typeMapper = Mapper<MediaRestApi.ResourceType, MediaItem.ResourceType>([
+        .photo: .photo,
+        .video: .video,
+        .panorama: .panorama])
 
     /// Mapper that maps resource format from the REST api to the `MediaItem.Format`
     static let formatMapper = Mapper<MediaRestApi.ResourceFormat, MediaItem.Format>([

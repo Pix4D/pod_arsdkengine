@@ -107,6 +107,9 @@ class FlightPlanPilotingItfController: ActivablePilotingItfController {
     /// Delegate to upload the FlightPlan
     private var uploader: ArsdkFlightplanUploader
 
+    /// The current upload cancellable.
+    private var currentUpload: CancelableCore?
+
     fileprivate init(activationController: PilotingItfActivationController, uploader: ArsdkFlightplanUploader) {
         self.uploader = uploader
         super.init(activationController: activationController, sendsPilotingCommands: false)
@@ -258,9 +261,21 @@ extension FlightPlanPilotingItfController: FlightPlanPilotingItfBackend {
             sendStopFlightPlan()
         } else {
             flightPlanPathToUpload = nil
+
+            // cancel any previous ongoing upload
+            currentUpload?.cancel()
+            var uploadHandle: CancelableCore?
             // uses the ftp or http uploader
-            _ = uploader.uploadFlightPlan(filepath: filepath) { [weak self] success, flightPlanUid in
+            uploadHandle = uploader.uploadFlightPlan(filepath: filepath) { [weak self] success, flightPlanUid in
                 if let `self` = self {
+                    self.currentUpload = nil
+                    // if the upload was cancelled then do not update state there should be no
+                    // state handling and the completion should be ignored.
+                    if let cancellableCoreTask = uploadHandle as? CancelableTaskCore,
+                       cancellableCoreTask.canceled {
+                        return
+                    }
+
                     if success {
                         self.remoteFlightPlanUid = flightPlanUid
                     } else {
@@ -280,6 +295,7 @@ extension FlightPlanPilotingItfController: FlightPlanPilotingItfBackend {
                     self.flightPlanPilotingItf.notifyUpdated()
                 }
             }
+            self.currentUpload = uploadHandle
         }
     }
 
@@ -387,6 +403,13 @@ extension FlightPlanPilotingItfController: ArsdkFeatureCommonMavlinkstateCallbac
             }
             flightPlanPilotingItf.update(isPaused: false)
             notifyActive()
+
+            // check if we have a recovery info available
+            if let recoveryInfo = flightPlanPilotingItf.recoveryInfo {
+                // if so try to catch up with the state on the drone
+                catchUpActivePilotingItfIfNeeded(flightplanId: recoveryInfo.id,
+                                                 customId: recoveryInfo.customId)
+            }
         case .stopped:
             isStopped = true
 
@@ -449,14 +472,20 @@ extension FlightPlanPilotingItfController: ArsdkFeatureFlightPlanCallback {
         flightPlanPilotingItf.notifyUpdated()
     }
 
-    func onRecoveryInfo(flightplanId: String!, customId: String!, item: UInt, runningTime: UInt) {
+    func onRecoveryInfo(flightplanId: String!, customId: String!, item: UInt, runningTime: UInt,
+                        resourceId: String!) {
         var flightPlanInfo: RecoveryInfo?
         if !flightplanId.isEmpty {
             flightPlanInfo = RecoveryInfo(id: flightplanId, customId: customId,
-                                          latestMissionItemExecuted: Int(item), runningTime: Double(runningTime))
+                                          latestMissionItemExecuted: Int(item),
+                                          runningTime: Double(runningTime),
+                                          resourceId: resourceId)
         }
         flightPlanPilotingItf.update(recoveryInfo: flightPlanInfo)
             .notifyUpdated()
+
+        // try to catch up with the state on the drone
+        catchUpActivePilotingItfIfNeeded(flightplanId: flightplanId, customId: customId)
     }
 
     func onCapabilities(supportedCapabilitiesBitField: UInt) {
@@ -469,6 +498,36 @@ extension FlightPlanPilotingItfController: ArsdkFeatureFlightPlanCallback {
     func onWaypointSkipped(item: UInt) {
         if flightPlanPilotingItf.latestUploadState != .uploading {
             flightPlanPilotingItf.update(latestMissionItemSkipped: Int(item)).notifyUpdated()
+        }
+    }
+}
+
+extension FlightPlanPilotingItfController {
+
+    /// Should be called to update the local state when connecting to a drone that has an active
+    /// flight plan piloting interface.
+    ///
+    /// - Parameters:
+    ///   - flightplanId: the flight plan id to use for updating local state.
+    ///   - customId: the custom id to use for updating local state.
+    private func catchUpActivePilotingItfIfNeeded(flightplanId: String, customId: String) {
+        // When the application is killed remoteFlightPlanUid & customFlightPlanId are cleared.
+        // If there is an active flight plan piloting interface on the drone and remoteFlightPlanUid
+        // is `nil` then this means that the app was probably killed/relaunched.
+        //
+        // When receiving recovery information from the drone and the itf is active then we can
+        // update the local state of the controller.
+        //
+        // This makes the controller recover gracefully and act correctly upon a pause or end of
+        // flight plan. With remoteFlightPlanUid == nil, if the controller is asked to pause, or the
+        // flight plan arrives to its end, then instead of transitioning to idle it transitions to
+        // unavailable.
+        //
+        // This catch up should only be done during the phase of connecting to the drone.
+        if !connected, // if not connected, then we are in a connecting phase
+           flightPlanPilotingItf.state == .active, remoteFlightPlanUid == nil {
+            remoteFlightPlanUid = flightplanId
+            customFlightPlanId = customId
         }
     }
 }

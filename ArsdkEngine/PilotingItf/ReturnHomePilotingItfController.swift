@@ -106,9 +106,9 @@ class ReturnHomePilotingItfController: ActivablePilotingItfController, ReturnHom
 
     /// The home reachability as indicated by the drone.
     ///
-    /// When there is no planned automatic return, the rthHomeReachability is reported in the interface. But When an
+    /// When there is no planned automatic return, the rthHomeReachability is reported in the interface. But when an
     /// automatic return is planned, the `homeReachability` property in the interface indicates .warning. So we memorize
-    /// this value to be able to update the interface when a planned return date (`autoTriggerDate`) is reset to nil
+    /// this value to be able to update the interface when a planned return date (`autoTriggerDate`) is reset to nil.
     var homeReachability = HomeReachability.unknown {
         didSet {
             if homeReachability != oldValue {
@@ -117,7 +117,7 @@ class ReturnHomePilotingItfController: ActivablePilotingItfController, ReturnHom
         }
     }
 
-    /// If a automatic return is planned, indicates the "auto trigger delay".
+    /// If an automatic return is planned, indicates the "auto trigger delay".
     var autoTriggerDelay: TimeInterval? {
         didSet {
             if autoTriggerDelay != oldValue {
@@ -515,7 +515,7 @@ class ReturnHomePilotingItfController: ActivablePilotingItfController, ReturnHom
             case let .endingHoveringAltitude(min, value, max):
                 if let preset: Double = presetStore?.read(key: setting.key) {
                     if preset != value {
-                        sendMinAltitudeCommand(preset)
+                        sendEndingHoveringAltitudeCommand(preset)
                     }
                     returnHomePilotingItf.update(endingHoveringAltitude: (min: min, value: preset, max: max))
                 } else {
@@ -549,7 +549,7 @@ class ReturnHomePilotingItfController: ActivablePilotingItfController, ReturnHom
 
     /// Updates the homeReachability and the autoTriggerDelay.
     ///
-    /// If a automatic Return is planned, this function set `.warning` as homeReachability value.
+    /// If an automatic return is planned, this function sets `homeReachability`to `.warning`.
     private func updateReachabilityStatus() {
         // force .warning if there is an autoTriggerDelay
         let reachability = autoTriggerDelay != nil ? .warning : homeReachability

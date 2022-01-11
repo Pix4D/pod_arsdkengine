@@ -114,7 +114,7 @@ class RCController: ProxyDeviceController {
     override func protocolWillConnect() {
         super.protocolWillConnect()
 
-        if let blackBoxRecorder = engine.blackBoxRecoder {
+        if let blackBoxRecorder = engine.blackBoxRecorder {
             let blackBoxRcSession = blackBoxRecorder.openRemoteControlSession(remoteControl: remoteControl)
             blackBoxSession = blackBoxRcSession
 

@@ -90,6 +90,7 @@ class AnafiFamilyDroneController: DroneController {
         if model == .anafi2 {
             componentControllers.append(Anafi2CellularLogs(deviceController: self))
         }
+        componentControllers.append(AnafiTakeoffChecklist(deviceController: self))
         // Peripherals
         componentControllers.append(AnafiMagnetometer(deviceController: self))
         let streamServer = (model == .anafi4k || model == .anafiThermal || model == .anafiUa || model == .anafiUsa) ?
@@ -163,7 +164,7 @@ class AnafiFamilyDroneController: DroneController {
         componentControllers.append(NetworkController(deviceController: self))
         componentControllers.append(FlightCameraRecorderController(deviceController: self))
         componentControllers.append(SecureElementController(deviceController: self))
-        componentControllers.append(AnafiTakeoffChecklist(deviceController: self))
+        componentControllers.append(PrivacyController(deviceController: self))
         sendDateAndTime = { [weak self] in
             let dateFormatter = DateFormatter()
             dateFormatter.timeZone = NSTimeZone.system

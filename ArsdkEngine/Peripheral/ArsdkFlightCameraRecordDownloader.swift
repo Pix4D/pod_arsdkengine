@@ -41,13 +41,16 @@ protocol ArsdkFlightCameraRecordDownloaderDelegate: AnyObject {
     func reset()
 
     /// Start watching FCR store content
-    func startWatchingContentChanges()
+    func startWatchingContentChanges(arsdkDownloader: ArsdkFlightCameraRecordDownloader)
 
     /// Stop watching FCR store content
     func stopWatchingContentChanges()
 
     /// Download all existing flight camera records
     func download()
+
+    /// Deletes all existing flight camera records.
+    func delete()
 
     /// Cancel current request and all following ones.
     func cancel()
@@ -109,7 +112,7 @@ class ArsdkFlightCameraRecordDownloader: DeviceComponentController {
 
     override func dataSyncAllowanceChanged(allowed: Bool) {
         if allowed {
-            delegate.startWatchingContentChanges()
+            delegate.startWatchingContentChanges(arsdkDownloader: self)
             download()
         } else {
             delegate.stopWatchingContentChanges()
@@ -117,21 +120,14 @@ class ArsdkFlightCameraRecordDownloader: DeviceComponentController {
         }
     }
 
-    /// Tells if downloading a flight camera record is allowed
-    ///
-    /// - Returns: `true` if the flight camera record download is allowed (the user account exists)
-    public func flightCameraRecordMustContainUserInfo(flightCameraRecordDate: Date) -> Bool {
-
-        if let userAccountInfo = userAccountUtilityCore?.userAccountInfo, userAccountInfo.account != nil {
-            return userAccountInfo.changeDate < flightCameraRecordDate
+    /// Downloads flight camera records from the controlled device.
+    /// In private mode, records are just deleted instead of being downloaded.
+    public func download() {
+        if userAccountUtilityCore?.userAccountInfo?.privateMode == true {
+            delegate.delete()
         } else {
-            return false
+            delegate.download()
         }
-    }
-
-    /// Downloads flight camera records from the controlled device
-    private func download() {
-        delegate.download()
     }
 
     /// Cancels current download

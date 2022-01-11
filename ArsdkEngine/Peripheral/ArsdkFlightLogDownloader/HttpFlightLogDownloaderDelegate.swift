@@ -73,12 +73,30 @@ class HttpFlightLogDownloaderDelegate: ArsdkFlightLogDownloaderDelegate {
         isCanceled = false
         currentRequest = flightLogApi?.getFlightLogList { flightLogList in
             if let flightLogList = flightLogList {
-                self.pendingDownloads = flightLogList
+                self.pendingDownloads = flightLogList.sorted { $0.date < $1.date }
                 self.downloadNextLog(toDirectory: directory, downloader: downloader)
             } else {
                 downloader.flightLogDownloader.update(completionStatus: .interrupted)
                     .update(downloadingFlag: false)
                     .notifyUpdated()
+                self.currentRequest = nil
+            }
+        }
+
+        return currentRequest != nil
+    }
+
+    func delete() -> Bool {
+        guard currentRequest == nil else {
+            return false
+        }
+
+        isCanceled = false
+        currentRequest = flightLogApi?.getFlightLogList { flightLogList in
+            if let flightLogList = flightLogList {
+                self.pendingDownloads = flightLogList
+                self.deleteNextLog()
+            } else {
                 self.currentRequest = nil
             }
         }
@@ -160,7 +178,22 @@ class HttpFlightLogDownloaderDelegate: ArsdkFlightLogDownloaderDelegate {
 
             // download next flight log
             self.downloadNextLog(toDirectory: directory, downloader: downloader)
+        }
+    }
 
+    /// Delete next log.
+    private func deleteNextLog() {
+        if let flightLog = pendingDownloads.first {
+            currentRequest = flightLogApi?.deleteFlightLog(flightLog) { _ in
+                // even if the deletion failed, process next report
+                if !self.pendingDownloads.isEmpty {
+                    self.pendingDownloads.removeFirst()
+                }
+                self.deleteNextLog()
+            }
+        } else {
+            currentRequest = nil
+            isCanceled = false
         }
     }
 }

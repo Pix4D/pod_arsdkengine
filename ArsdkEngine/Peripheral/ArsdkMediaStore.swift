@@ -108,6 +108,19 @@ protocol MediaStoreDelegate: AnyObject {
         resource: MediaItemResourceCore, destDirectoryPath: String,
         completion: @escaping (_ signatureUrl: URL?) -> Void) -> CancelableCore?
 
+    /// Uploads a resource.
+    ///
+    /// - Parameters:
+    ///   - resourceUrl: the resource file to upload
+    ///   - target: target media item to attach uploaded resource files to
+    ///   - progress: progress callback
+    ///   - progressValue: the progress value, from 0 to 100
+    ///   - completion: completion callback
+    /// - Returns: a request that can be canceled
+    func upload(
+        resourceUrl: URL, target: MediaItemCore, progress: @escaping (_ progressValue: Int) -> Void,
+        completion: @escaping (_ success: Bool) -> Void) -> CancelableCore?
+
     /// Delete a media
     ///
     /// - Parameters:
@@ -427,6 +440,103 @@ extension ArsdkMediaStore: MediaStoreBackend {
 
         // start download with the first resource
         downloadNextResource()
+        return task
+    }
+
+    /// Uploads media resources.
+    ///
+    /// - Parameters:
+    ///   - resources: resource files to upload
+    ///   - target: target media item to attach uploaded resource files to
+    ///   - progress: upload progress callback
+    /// - Returns: resource upload request, or `nil` if the request can't be send.
+    func upload(resources: [URL], target: MediaItemCore,
+                progress: @escaping (ResourceUploader?) -> Void) -> CancelableTaskCore? {
+
+        /// Upload entry to be processed.
+        struct Entry {
+            /// URL of the file to upload.
+            let url: URL
+            /// File size, in bytes.
+            let size: UInt64
+        }
+
+        var uploadedResourceCount = 0
+        var uploadedResourceSize: UInt64 = 0
+        let entries: [Entry] = resources.map { resource in
+            var size: UInt64 = 0
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: resource.path) {
+                size = attrs[.size] as? UInt64 ?? 0
+            }
+            return Entry(url: resource, size: size)
+        }
+        let totalSize = Float(entries.reduce(0, { $0 + $1.size }))
+        var entriesIterator = entries.makeIterator()
+
+        // create result request
+        let task = CancelableTaskCore()
+
+        /// Notify progress with current file.
+        ///
+        /// - Parameters:
+        ///   - currentEntry: current file entry
+        ///   - ratio: current file upload between 0.0 (0%) and 1.0 (100%)
+        ///   - status: upload progress status
+        func notifyProgress(currentEntry: Entry?, ratio: Float, status: MediaTaskStatus) {
+            let totalProgress = (Float(uploadedResourceSize) + Float(currentEntry?.size ?? 0) * ratio) / totalSize
+            progress(ResourceUploaderCore(targetMedia: target, totalResourceCount: entries.count,
+                                          uploadedResourceCount: uploadedResourceCount, currentFileProgress: ratio,
+                                          totalProgress: totalProgress, status: status,
+                                          currentFileUrl: currentEntry?.url))
+        }
+
+        /// Uploads the next media resource.
+        func uploadNextResource() {
+            guard !task.canceled else {
+                // don't do anything if the request has been canceled
+                return
+            }
+
+            // Move to next resource entry
+            if let entry = entriesIterator.next() {
+                // request upload
+                let req = delegate.upload(
+                    resourceUrl: entry.url, target: target,
+                    progress: { percent in
+                        notifyProgress(currentEntry: entry, ratio: Float(percent) / 100, status: .running)
+                    },
+                    completion: { success in
+                        task.request = nil
+                        if success {
+                            uploadedResourceCount += 1
+                            notifyProgress(currentEntry: entry, ratio: 1.0, status: .fileDownloaded)
+                            uploadedResourceSize += entry.size
+                            uploadNextResource()
+                        } else if !task.canceled {
+                            ULog.w(.ctrlTag, "Error uploading media resource")
+                            notifyProgress(currentEntry: entry, ratio: 0.0, status: .error)
+                        }
+                })
+                // request created, update client request and notify progress
+                if let req = req {
+                    // store current low level request to cancel
+                    task.request = req
+                    // progress for the new resource
+                    notifyProgress(currentEntry: entry, ratio: 0.0, status: .running)
+                } else {
+                    // error sending request
+                    ULog.d(.ctrlTag, "Error sending resource upload request")
+                    notifyProgress(currentEntry: entry, ratio: 0.0, status: .error)
+                }
+            } else {
+                // no more resources to upload
+                ULog.d(.ctrlTag, "Resource upload terminated")
+                notifyProgress(currentEntry: nil, ratio: 0.0, status: .complete)
+            }
+        }
+
+        // start upload with the first resource
+        uploadNextResource()
         return task
     }
 

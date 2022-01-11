@@ -47,14 +47,6 @@ class FtpCrashmlDownloaderDelegate: ArsdkCrashmlDownloaderDelegate {
             return false
         }
 
-        // we don't have any report date; so we pretend the report has been generated now, which may not be true.
-        // Result is that we download reports if there is an user account set, no matter when it was.
-        // The issue is that we may upload reports containing user info that were generated at a time when the user
-        // did not agree to upload personal info yet...
-        guard downloader.reportMayContainUserInfo(reportDate: Date()) else {
-            return false
-        }
-
         currentRequest = downloader.deviceController.downloadCrashml(
             path: downloader.crashReportStorage.workDir.path,
             progress: { [weak self] file, status in
@@ -73,6 +65,11 @@ class FtpCrashmlDownloaderDelegate: ArsdkCrashmlDownloaderDelegate {
         })
 
         return currentRequest != nil
+    }
+
+    func delete() -> Bool {
+        // Not implemented
+        return false
     }
 
     func cancel() {

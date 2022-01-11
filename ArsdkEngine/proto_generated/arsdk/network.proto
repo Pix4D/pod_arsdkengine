@@ -17,6 +17,7 @@ message Command {
 		GetState get_state = 16;
 		SetRoutingPolicy set_routing_policy = 17;
 		SetCellularMaxBitrate  set_cellular_max_bitrate = 18;
+		SetDirectConnection set_direct_connection = 19;
 	}
 
 	/* Get current state. */
@@ -24,6 +25,7 @@ message Command {
 		/* Include default_capabilities in response. */
 		bool include_default_capabilities = 1;
 
+		option (on_success) = "Event.State()";
 		option (support) = "091a";
 	}
 
@@ -32,6 +34,7 @@ message Command {
 		/* Routing policy. */
 		RoutingPolicy policy = 1;
 
+		option (on_success) = "Event.State()";
 		option (support) = "091a";
 	}
 
@@ -39,6 +42,16 @@ message Command {
 	message SetCellularMaxBitrate {
 		/* Maximum bitrate in Kbps (0 for default value) */
 		int32 max_bitrate = 1;
+
+		option (on_success) = "Event.State()";
+	}
+
+	/* Set direct connection mode
+	 * State is sent afterwards. */
+	message SetDirectConnection {
+		DirectConnectionMode mode = 1;
+		option (support) = "091a";
+		option (on_success) = "Event.State(mode=this.direct_connection_mode)";
 	}
 }
 
@@ -59,6 +72,7 @@ message Event {
 		GlobalLinkQuality global_link_quality = 3;
 		LinksStatus links_status = 4;
 		CellularMaxBitrate cellular_max_bitrate = 5;
+		DirectConnectionMode direct_connection_mode = 6;
 	}
 }
 
@@ -68,6 +82,8 @@ message Capabilities {
 	int32 cellular_min_bitrate = 1;
 	/* Maximum bitrate of cellular link in Kbps. */
 	int32 cellular_max_bitrate = 2;
+	/* DirectConnectionMode supported */
+	repeated DirectConnectionMode supported_direct_connection_modes = 3;
 }
 
 /* Routing information. */
@@ -182,4 +198,12 @@ enum LinkError {
 	LINK_ERROR_TIMEOUT = 6;
 	/* Failed to invite drone. */
 	LINK_ERROR_INVITE = 7;
+}
+
+/* Direct connection mode */
+enum DirectConnectionMode {
+	/* Legacy mode: secure connection is not mandatory. */
+	DIRECT_CONNECTION_MODE_LEGACY = 0;
+	/* Only secure connections are authorized. */
+	DIRECT_CONNECTION_MODE_SECURE = 1;
 }

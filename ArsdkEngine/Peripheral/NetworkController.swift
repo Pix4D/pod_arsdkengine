@@ -50,25 +50,29 @@ class NetworkController: DeviceComponentController, NetworkControlBackend {
     enum SettingKey: String, StoreKey {
         case routingPolicyKey = "routingPolicy"
         case maxCellularBitrateKey = "maxCellularBitrate"
+        case directConnectionModeKey = "directConnectionMode"
     }
 
     /// Stored settings.
     enum Setting: Hashable {
         case routingPolicy(NetworkControlRoutingPolicy)
         case maxCellularBitrate(Int)
+        case directConnectionMode(NetworkDirectConnectionMode)
 
         /// Setting storage key.
         var key: SettingKey {
             switch self {
             case .routingPolicy: return .routingPolicyKey
             case .maxCellularBitrate: return .maxCellularBitrateKey
+            case .directConnectionMode: return .directConnectionModeKey
             }
         }
 
         /// All values to allow enumerating settings.
         static let allCases: [Setting] = [
             .routingPolicy(.automatic),
-            .maxCellularBitrate(0)]
+            .maxCellularBitrate(0),
+            .directConnectionMode(.secure)]
 
         func hash(into hasher: inout Hasher) {
             hasher.combine(key)
@@ -83,17 +87,20 @@ class NetworkController: DeviceComponentController, NetworkControlBackend {
     enum Capabilities {
         case routingPolicy(Set<NetworkControlRoutingPolicy>)
         case maxCellularBitrate(Int, Int)
+        case directConnectionMode(Set<NetworkDirectConnectionMode>)
 
         /// All values to allow enumerating settings
         static let allCases: [Capabilities] = [
             .routingPolicy([]),
-            .maxCellularBitrate(0, 0)]
+            .maxCellularBitrate(0, 0),
+            .directConnectionMode([])]
 
         /// Setting storage key
         var key: SettingKey {
             switch self {
             case .routingPolicy: return .routingPolicyKey
             case .maxCellularBitrate: return .maxCellularBitrateKey
+            case .directConnectionMode: return .directConnectionModeKey
             }
         }
     }
@@ -194,6 +201,15 @@ class NetworkController: DeviceComponentController, NetworkControlBackend {
                         let range: (min: Int, max: Int) = deviceStore.readRange(key: setting.key) {
                         networkControl.update(maxCellularBitrate: (range.min, value, range.max))
                     }
+                case .directConnectionMode:
+                    if let modes: StorableArray<NetworkDirectConnectionMode> = deviceStore.read(key: setting.key),
+                       let mode: NetworkDirectConnectionMode = presetStore.read(key: setting.key) {
+                        let supportedModes = Set(modes.storableValue)
+                        if supportedModes.contains(mode) {
+                            networkControl.update(supportedDirectConnectionModes: supportedModes)
+                                .update(directConnectionMode: mode)
+                        }
+                    }
                 }
             }
             networkControl.notifyUpdated()
@@ -224,6 +240,15 @@ class NetworkController: DeviceComponentController, NetworkControlBackend {
                 } else {
                     networkControl.update(maxCellularBitrate: (min: nil, value: value, max: nil))
                 }
+            case .directConnectionMode(let mode):
+                if let preset: NetworkDirectConnectionMode = presetStore?.read(key: setting.key) {
+                    if preset != mode {
+                        _ = sendDirectConnectionCommand(preset)
+                    }
+                    networkControl.update(directConnectionMode: preset).notifyUpdated()
+                } else {
+                    networkControl.update(directConnectionMode: mode).notifyUpdated()
+                }
             }
         }
     }
@@ -241,6 +266,10 @@ class NetworkController: DeviceComponentController, NetworkControlBackend {
         case .maxCellularBitrate(let maxCellularBitrate):
             if connected {
                 networkControl.update(maxCellularBitrate: (min: nil, value: maxCellularBitrate, max: nil))
+            }
+        case .directConnectionMode(let mode):
+            if connected {
+                networkControl.update(directConnectionMode: mode)
             }
         }
         networkControl.notifyUpdated()
@@ -260,6 +289,9 @@ class NetworkController: DeviceComponentController, NetworkControlBackend {
         case .maxCellularBitrate(let min, let max):
             deviceStore?.writeRange(key: capabilities.key, min: min, max: max)
             networkControl.update(maxCellularBitrate: (min: min, value: nil, max: max))
+        case .directConnectionMode(let modes):
+            deviceStore?.write(key: capabilities.key, value: StorableArray(Array(modes)))
+            networkControl.update(supportedDirectConnectionModes: modes)
         }
         deviceStore?.commit()
     }
@@ -296,6 +328,20 @@ class NetworkController: DeviceComponentController, NetworkControlBackend {
         } else {
             networkControl.update(maxCellularBitrate: (min: nil, value: maxCellularBitrate, max: nil))
                 .notifyUpdated()
+            return false
+        }
+    }
+
+    /// Sets direct connection mode.
+    ///
+    /// - Parameter directConnectionMode: the new mode
+    /// - Returns: true if the command has been sent, false if not connected and the value has been changed immediately
+    func set(directConnectionMode: NetworkDirectConnectionMode) -> Bool {
+        presetStore?.write(key: SettingKey.directConnectionModeKey, value: directConnectionMode).commit()
+        if connected {
+            return sendDirectConnectionCommand(directConnectionMode)
+        } else {
+            networkControl.update(directConnectionMode: directConnectionMode).notifyUpdated()
             return false
         }
     }
@@ -348,6 +394,20 @@ extension NetworkController {
         setCellularMaxBitrate.maxBitrate = Int32(maxCellularBitrate)
         return sendNetworkCommand(.setCellularMaxBitrate(setCellularMaxBitrate))
     }
+
+    /// Sends direct connection command.
+    ///
+    /// - Parameter mode: requested mode
+    /// - Returns: `true` if the command has been sent
+    func sendDirectConnectionCommand(_ mode: NetworkDirectConnectionMode) -> Bool {
+        var sent = false
+        if let arsdkMode = mode.arsdkValue {
+            var setDirectConnection = Arsdk_Network_Command.SetDirectConnection()
+            setDirectConnection.mode = arsdkMode
+            sent = sendNetworkCommand(.setDirectConnection(setDirectConnection))
+        }
+        return sent
+    }
 }
 
 /// Extension for events processing.
@@ -359,6 +419,10 @@ extension NetworkController: ArsdkNetworkEventDecoderListener {
             let minBitrate = Int(capabilities.cellularMinBitrate)
             let maxBitrate = Int(capabilities.cellularMaxBitrate)
             capabilitiesDidChange(.maxCellularBitrate(minBitrate, maxBitrate))
+            let supportedModes = Set(capabilities.supportedDirectConnectionModes.compactMap {
+                NetworkDirectConnectionMode(fromArsdk: $0)
+            })
+            capabilitiesDidChange(.directConnectionMode(supportedModes))
         }
 
         // routing info
@@ -379,6 +443,11 @@ extension NetworkController: ArsdkNetworkEventDecoderListener {
         // cellular maximum bitrate
         if state.hasCellularMaxBitrate {
             processCellularMaxBitrate(state.cellularMaxBitrate)
+        }
+
+        // direct connection mode
+        if let mode = NetworkDirectConnectionMode(fromArsdk: state.directConnectionMode) {
+            settingDidChange(.directConnectionMode(mode))
         }
 
         if !stateReceived {
@@ -453,6 +522,13 @@ extension NetworkControlRoutingPolicy: StorableEnum {
         .automatic: "automatic"])
 }
 
+/// Extension to make NetworkDirectConnectionMode storable.
+extension NetworkDirectConnectionMode: StorableEnum {
+    static var storableMapper = Mapper<NetworkDirectConnectionMode, String>([
+        .legacy: "legacy",
+        .secure: "secure"])
+}
+
 /// Extension that adds conversion from/to arsdk enum.
 extension NetworkControlRoutingPolicy: ArsdkMappableEnum {
     static let arsdkMapper = Mapper<NetworkControlRoutingPolicy, Arsdk_Network_RoutingPolicy>([
@@ -492,6 +568,13 @@ extension NetworkControlLinkError: ArsdkMappableEnum {
         .publish: .publish,
         .timeout: .timeout,
         .invite: .invite])
+}
+
+/// Extension that adds conversion from/to arsdk enum.
+extension NetworkDirectConnectionMode: ArsdkMappableEnum {
+    static let arsdkMapper = Mapper<NetworkDirectConnectionMode, Arsdk_Network_DirectConnectionMode>([
+        .legacy: .legacy,
+        .secure: .secure])
 }
 
 /// Extension that adds conversion to gsdk.

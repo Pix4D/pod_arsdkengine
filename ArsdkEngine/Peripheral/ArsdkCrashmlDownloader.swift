@@ -47,6 +47,10 @@ protocol ArsdkCrashmlDownloaderDelegate: AnyObject {
     ///   - downloader: the downloader in charge
     /// - Returns: true if the download has been started, false otherwise
     func download(toDirectory directory: URL, downloader: ArsdkCrashmlDownloader) -> Bool
+    /// Deletes all existing CrashML reports.
+    ///
+    /// - Returns: true if the deletion has been started, false otherwise
+    func delete() -> Bool
 
     /// Cancel current request and all following ones.
     func cancel()
@@ -130,28 +134,17 @@ class ArsdkCrashmlDownloader: DeviceComponentController {
         }
     }
 
-    /// Tells whether downloading a report containing user-related information is allowed.
-    ///
-    /// - Note: A report can contain user information, if a accountID has been set at a date earlier than the report
-    /// date.
-    ///
-    /// - Parameter reportDate: date of the report
-    /// - Returns: `true` if the report may contain user information, false otherwise
-    public func reportMayContainUserInfo(reportDate: Date) -> Bool {
-
-        if let userAccountInfo = userAccountUtilityCore?.userAccountInfo, userAccountInfo.account != nil {
-            return userAccountInfo.changeDate < reportDate
-        } else {
-            return false
-        }
-    }
-
-    /// Downloads crash reports from the controlled device
+    /// Downloads crash reports from the controlled device.
+    /// In private mode, reports are just deleted instead of being downloaded.
     private func download() {
-        if delegate.download(toDirectory: crashReportStorage.workDir, downloader: self) {
-            crashReportDownloader.update(downloadingFlag: true)
-                .update(completionStatus: .none)
-                .notifyUpdated()
+        if userAccountUtilityCore?.userAccountInfo?.privateMode == true {
+            _ = delegate.delete()
+        } else {
+            if delegate.download(toDirectory: crashReportStorage.workDir, downloader: self) {
+                crashReportDownloader.update(downloadingFlag: true)
+                    .update(completionStatus: .none)
+                    .notifyUpdated()
+            }
         }
     }
 

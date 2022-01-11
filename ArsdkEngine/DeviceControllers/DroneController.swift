@@ -204,7 +204,7 @@ class DroneController: DeviceController {
     override func protocolWillConnect() {
         super.protocolWillConnect()
 
-        if let blackBoxRecorder = engine.blackBoxRecoder {
+        if let blackBoxRecorder = engine.blackBoxRecorder {
             var providerUid: String?
             if  activeProvider?.connector.connectorType == .remoteControl {
                 providerUid = activeProvider?.connector.uid
@@ -316,6 +316,21 @@ class DroneController: DeviceController {
             speedAccuracy = newLocation.speedAccuracy
             availableDataBitfield = availableDataBitfield
                 | Bitfield<ArsdkFeatureControllerInfoAvailableData>.of(.northVelocity, .eastVelocity, .velocityAccuracy)
+        }
+
+        // log controller location debug
+        if #available(iOS 13.4, *) {
+            ULog.d(.ctrlTag, "newLocation \(newLocation) |\n" +
+                    " .speed: \(newLocation.speed) .speedAccuracy: \(newLocation.speedAccuracy)" +
+                    " .course: \(newLocation.course) .courseAccuracy: \(newLocation.courseAccuracy) |\n" +
+                    " northSpeed: \(northSpeed) eastSpeed: \(eastSpeed) speedAccuracy: \(speedAccuracy)" +
+                    " availableDataBitfield: 0x\(String(format: "%02X", availableDataBitfield))")
+        } else {
+            ULog.d(.ctrlTag, "newLocation \(newLocation) |\n" +
+                    " .speed: \(newLocation.speed) .speedAccuracy: \(newLocation.speedAccuracy)" +
+                    " .course: \(newLocation.course) .courseAccuracy: --- |\n" +
+                    " northSpeed: \(northSpeed) eastSpeed: \(eastSpeed) speedAccuracy: \(speedAccuracy)" +
+                    " availableDataBitfield: 0x\(String(format: "%02X", availableDataBitfield))")
         }
 
         if gpsCommandSupported.contains(.gps_v2) {

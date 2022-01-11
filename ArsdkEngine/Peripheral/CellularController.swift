@@ -58,11 +58,19 @@ class CellularController: DeviceComponentController, CellularBackend {
     /// component settings key
     private static let settingKey = "CellularController"
 
-    /// Preset store for this cellular interface
+    /// Store device specific values
+    public let deviceStore: SettingsStore
+
+    /// Preset store for this component
     private var presetStore: SettingsStore?
 
     /// Store APN configuration values
     private var apnConfigurationPresets: ApnConfigurationPresets!
+
+    /// All data that can be stored
+    enum PersistedDataKey: String, StoreKey {
+        case imei = "imei"
+    }
 
     /// All settings that can be stored
     enum SettingKey: String, StoreKey {
@@ -107,6 +115,7 @@ class CellularController: DeviceComponentController, CellularBackend {
     ///
     /// - Parameter deviceController: device controller owning this component controller (weak)
     override init(deviceController: DeviceController) {
+        deviceStore = deviceController.deviceStore.getSettingsStore(key: CellularController.settingKey)
         if GroundSdkConfig.sharedInstance.offlineSettings == .off {
             presetStore = nil
         } else {
@@ -116,10 +125,27 @@ class CellularController: DeviceComponentController, CellularBackend {
         super.init(deviceController: deviceController)
         cellular = CellularCore(store: deviceController.device.peripheralStore, backend: self)
         apnConfigurationPresets = ApnConfigurationPresets(apnSetting: cellular.apnConfigurationSetting)
+
+        var publish = false
+        // load persisted data
+        if !deviceStore.new {
+            loadPersistedData()
+            publish = true
+        }
         // load settings
         if let presetStore = presetStore, !presetStore.new {
             loadPresets()
+            publish = true
+        }
+        if publish {
             cellular.publish()
+        }
+    }
+
+    /// Load saved values
+    private func loadPersistedData() {
+        if let imei: String = deviceStore.read(key: PersistedDataKey.imei) {
+            cellular.update(imei: imei)
         }
     }
 
@@ -182,7 +208,6 @@ class CellularController: DeviceComponentController, CellularBackend {
             .update(operator: "")
             .update(technology: .edge)
             .update(modemStatus: .off)
-            .update(imei: "")
             .update(networkStatus: .deactivated)
             .update(isPinCodeRequested: false)
             .update(isPinCodeInvalid: false)
@@ -201,6 +226,7 @@ class CellularController: DeviceComponentController, CellularBackend {
 
     /// Drone is about to be forgotten
     override func willForget() {
+        deviceStore.clear()
         cellular.unpublish()
         super.willForget()
     }
@@ -678,6 +704,7 @@ extension CellularController: ArsdkFeatureCellularCallback {
         cellular.update(modemStatus: newModemStatus)
             .update(imei: imei)
             .notifyUpdated()
+        deviceStore.write(key: PersistedDataKey.imei, value: imei).commit()
     }
 
     func onPincodeRequest(modemId: UInt, invalidPincode: UInt, pinRemainingTries: UInt) {

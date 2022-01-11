@@ -140,8 +140,8 @@ extension Arsdk_Network_LinksStatus.LinkInfo {
             case .ready: return .ready
             case .running: return .running
             case .error:
-                let error = CellularLinkStatusError.init(fromArsdk: error)
-                return .error(error: error)
+                let theError = CellularLinkStatusError.init(fromArsdk: error)
+                return .error(error: theError)
             case .UNRECOGNIZED:
                 return nil
             }

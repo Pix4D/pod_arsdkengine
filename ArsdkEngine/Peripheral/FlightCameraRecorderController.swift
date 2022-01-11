@@ -143,6 +143,7 @@ class FlightCameraRecorderController: DeviceComponentController, FlightCameraRec
         if GroundSdkConfig.sharedInstance.offlineSettings == .off {
             flightCameraRecorder.unpublish()
         }
+        flightCameraRecorder.notifyUpdated()
     }
 
     /// Drone is about to be forgotten
@@ -183,7 +184,8 @@ class FlightCameraRecorderController: DeviceComponentController, FlightCameraRec
         }
     }
 
-    /// Called when a command that notifies a setting change has been received
+    /// Called when a command that notifies a setting change has been received.
+    ///
     /// - Parameter setting: setting that changed
     func settingDidChange(_ setting: Setting) {
         droneSettings.insert(setting)
@@ -243,8 +245,8 @@ class FlightCameraRecorderController: DeviceComponentController, FlightCameraRec
 extension FlightCameraRecorderController: ArsdkFeatureFcrCallback {
 
     func onState(stateBitField: UInt64) {
-        let actitvePipelines = FlightCameraRecorderPipeline.createSetFrom(bitField: stateBitField)
-        flightCameraRecorder.update(activePipelines: actitvePipelines).notifyUpdated()
+        let activePipelines = FlightCameraRecorderPipeline.createSetFrom(bitField: stateBitField)
+        settingDidChange(.activePipelines(activePipelines))
     }
 
     func onCapabilities(capabilitiesBitField: UInt64) {
@@ -271,7 +273,7 @@ extension FlightCameraRecorderPipeline: ArsdkMappableEnum {
 
     static var arsdkMapper = Mapper<FlightCameraRecorderPipeline, ArsdkFeatureFcrPipeline>([
         .fcamTimelapse: .fcamTimelapse,
-        .fcamFollowme: .fcamFollowme,
+        .fcamFollowme: .fcamTracking,
         .fcamEmergency: .fcamEmergency,
         .fstcamLeftTimelapse: .fstcamLeftTimelapse,
         .fstcamLeftEmergency: .fstcamLeftEmergency,

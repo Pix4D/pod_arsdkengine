@@ -71,6 +71,11 @@ class FtpFlightLogDownloaderDelegate: ArsdkFlightLogDownloaderDelegate {
         return currentRequest != nil
     }
 
+    func delete() -> Bool {
+        // Not implemented
+        return false
+    }
+
     func cancel() {
         currentRequest?.cancel()
     }

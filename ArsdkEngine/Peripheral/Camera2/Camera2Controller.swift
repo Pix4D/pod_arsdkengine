@@ -565,6 +565,9 @@ extension Camera2Controller: Camera2Backend {
 
     func resetZoomLevel() {
         if active {
+            // cancel any ongoing control command
+            zoomBackend.cancelControl()
+            // send reset zoom command
             backend.resetZoomLevel(id: id)
         }
     }

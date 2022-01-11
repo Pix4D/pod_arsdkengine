@@ -88,8 +88,10 @@ class ArsdkProxy: DeviceProvider {
     /// - Returns: true if the connect request has been processed
     func connect(uid: String, model: DeviceModel, name: String, password: String) -> Bool {
         let deviceController = engine.getOrCreateDeviceController(uid: uid, model: model, name: name)
+        // try to connect before adding the provider to prevent from an auto connection attempt
+        let res = connect(deviceController: deviceController, password: password)
         deviceController.addProvider(self)
-        return connect(deviceController: deviceController, password: password)
+        return res
     }
 
     override func forget(deviceController: DeviceController) {
@@ -183,6 +185,12 @@ extension ArsdkProxy {
     func remoteDeviceAutheticationFailed(uid: String) {
         if let activeDevice = activeDevice, activeDevice.device.uid == uid {
             activeDevice.linkDidCancelConnect(cause: .badPassword, removing: false)
+        }
+    }
+
+    func remoteDeviceConnectionRefused(uid: String) {
+        if let activeDevice = activeDevice, activeDevice.device.uid == uid {
+            activeDevice.linkDidCancelConnect(cause: .refused, removing: false)
         }
     }
 

@@ -82,6 +82,24 @@ class HttpCrashmlDownloaderDelegate: ArsdkCrashmlDownloaderDelegate {
         return currentRequest != nil
     }
 
+    func delete() -> Bool {
+        guard currentRequest == nil else {
+            return false
+        }
+
+        isCanceled = false
+        currentRequest = reportApi?.getReportList { reportList in
+            if let reportList = reportList {
+                self.pendingDownloads = reportList
+                self.deleteNextReport()
+            } else {
+                self.currentRequest = nil
+            }
+        }
+
+        return currentRequest != nil
+    }
+
     func cancel() {
         isCanceled = true
         // empty the list of pending downloads
@@ -103,7 +121,7 @@ class HttpCrashmlDownloaderDelegate: ArsdkCrashmlDownloaderDelegate {
                     let notifyUrl = fileUrl
                     // download light report
                     self.currentRequest = self.reportApi?.downloadReport(
-                    report, toDirectory: directory, type: .light) { fileUrl in
+                        report, toDirectory: directory, type: .light) { fileUrl in
                         self.downloadCount += 1
                         downloader.crashReportDownloader.update(downloadedCount: self.downloadCount).notifyUpdated()
                         var arrayUrl = [URL]()
@@ -120,27 +138,29 @@ class HttpCrashmlDownloaderDelegate: ArsdkCrashmlDownloaderDelegate {
                     }
                 } else { // failed to download full report, trying to download light report
                     // download light report
-                     if !self.isCanceled {
-                    self.currentRequest = self.reportApi?.downloadReport(report, toDirectory: directory,
-                                                                         type: .light) { fileUrl in
-                        if let fileUrl = fileUrl {
-                            self.downloadCount += 1
+                    if !self.isCanceled {
+                        self.currentRequest = self.reportApi?.downloadReport(report, toDirectory: directory,
+                                                                             type: .light) { fileUrl in
+                            if let fileUrl = fileUrl {
+                                self.downloadCount += 1
 
-                            downloader.crashReportDownloader.update(downloadedCount: self.downloadCount).notifyUpdated()
-                            downloader.crashReportStorage.notifyReportReady(
-                                reportUrlCollection: [URL(fileURLWithPath: fileUrl.path)])
+                                downloader.crashReportDownloader.update(downloadedCount: self.downloadCount)
+                                    .notifyUpdated()
+                                downloader.crashReportStorage.notifyReportReady(
+                                    reportUrlCollection: [URL(fileURLWithPath: fileUrl.path)])
 
-                            // delete the distant report even if we have only the light one.
-                            self.currentRequest = self.reportApi?.deleteReport(report) { _ in
+                                // delete the distant report even if we have only the light one.
+                                self.currentRequest = self.reportApi?.deleteReport(report) { _ in
+                                    self.removeFirstAndDownloadNextReport(toDirectory: directory,
+                                                                          downloader: downloader)
+                                }
+                            } else {
+                                // failed to download full & light report notify and download next report.
+                                // we do not delete distant report.
                                 self.removeFirstAndDownloadNextReport(toDirectory: directory, downloader: downloader)
                             }
-                        } else {
-                            // failed to download full & light report notify and download next report.
-                            // we do not delete distant report.
-                            self.removeFirstAndDownloadNextReport(toDirectory: directory, downloader: downloader)
                         }
-                        }
-                     } else {
+                    } else {
                         self.removeFirstAndDownloadNextReport(toDirectory: directory, downloader: downloader)
                     }
                 }
@@ -163,5 +183,21 @@ class HttpCrashmlDownloaderDelegate: ArsdkCrashmlDownloaderDelegate {
             self.pendingDownloads.removeFirst()
         }
         self.downloadNextReport(toDirectory: directory, downloader: downloader)
+    }
+
+    /// Delete next report.
+    private func deleteNextReport() {
+        if let report = pendingDownloads.first {
+            self.currentRequest = self.reportApi?.deleteReport(report) { _ in
+                // even if the deletion failed, process next report
+                if !self.pendingDownloads.isEmpty {
+                    self.pendingDownloads.removeFirst()
+                }
+                self.deleteNextReport()
+            }
+        } else {
+            currentRequest = nil
+            isCanceled = false
+        }
     }
 }

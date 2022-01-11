@@ -69,6 +69,7 @@ class SkyControllerMagnetometer: DeviceComponentController {
 /// Magnetometer backend implementation
 extension SkyControllerMagnetometer: MagnetometerBackend {
     func startCalibrationProcess() {
+        sendCommand(ArsdkFeatureSkyctrlCalibration.startCalibrationEncoder())
         sendCommand(ArsdkFeatureSkyctrlCalibration.enableMagnetoCalibrationQualityUpdatesEncoder(enable: 1))
     }
 
@@ -99,6 +100,10 @@ extension SkyControllerMagnetometer: ArsdkFeatureSkyctrlCalibrationstateCallback
             }
             magnetometer.update(rollProgress: rollProgress, pitchProgress: pitchProgress, yawProgress: yawProgress)
                 .update(calibrated: calibratedStatus).notifyUpdated()
+
+            if calibratedStatus == .calibrated {
+                magnetometer.calibrationProcessStopped().notifyUpdated()
+            }
         }
     }
 }

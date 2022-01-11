@@ -121,29 +121,37 @@ extension DroneManagerDroneFinder: ArsdkFeatureDroneManagerCallback {
                 }
                 // add
                 if case .drone(let droneModel)? = DeviceModel.from(internalId: Int(model)), visibleBitField != 0 {
-                    func computeSecurity(security: ArsdkFeatureDroneManagerSecurity, hasSavedKey: UInt)
+                    func computeSecurity(visibleBitField: UInt,
+                                         security: ArsdkFeatureDroneManagerSecurity, hasSavedKey: UInt)
                         -> ConnectionSecurity {
-                            switch security {
-                            case .wpa2:
-                                return (hasSavedKey != 0)  ? .savedPassword : .password
-                            case .none:
-                                return .none
-                            case .sdkCoreUnknown:
-                                fallthrough
-                            @unknown default:
-                                // don't change anything if value is unknown
-                                ULog.w(.tag, "Unknown security, setting it to none.")
+                            if ArsdkFeatureDroneManagerVisibleStateBitField.isSet(.wifiVisible,
+                                                                                  inBitField: visibleBitField) {
+                                switch security {
+                                case .wpa2:
+                                    return (hasSavedKey != 0) ? .savedPassword : .password
+                                case .none:
+                                    return .none
+                                case .sdkCoreUnknown:
+                                    fallthrough
+                                @unknown default:
+                                    // don't change anything if value is unknown
+                                    ULog.w(.tag, "Unknown security, setting it to none.")
+                                    return .none
+                                }
+                            } else {
+                                // if the drone is not visible in wifi, force the security to none.
                                 return .none
                             }
                     }
 
                     drones[serial] = DiscoveredDroneCore(
                         uid: serial, model: droneModel, name: name, known: connectionOrder != 0, rssi: rssi,
-                        connectionSecurity: computeSecurity(security: security, hasSavedKey: hasSavedKey),
+                        connectionSecurity: computeSecurity(visibleBitField: visibleBitField,
+                                                            security: security, hasSavedKey: hasSavedKey),
                         wifiVisibility: ArsdkFeatureDroneManagerVisibleStateBitField.isSet(
-                            .wifiVisible, inBitField: listFlagsBitField),
+                            .wifiVisible, inBitField: visibleBitField),
                         cellularOnLine: ArsdkFeatureDroneManagerVisibleStateBitField.isSet(
-                            .cellularOnline, inBitField: listFlagsBitField))
+                            .cellularOnline, inBitField: visibleBitField))
 
                 } else {
                     ULog.w(.ctrlTag, "Ignoring onDroneListItem for model \(model)")

@@ -431,6 +431,7 @@ extension Arsdk_Camera_Event.Photo {
     static var typeFieldNumber: Int32 { 2 }
     static var mediaIdFieldNumber: Int32 { 3 }
     static var stopReasonFieldNumber: Int32 { 4 }
+    static var resourceIdFieldNumber: Int32 { 5 }
 }
 extension Arsdk_Camera_Event.Recording {
     static var cameraIdFieldNumber: Int32 { 1 }

@@ -510,6 +510,7 @@ class DeviceController: NSObject {
                 transitToDisconnectedState(withCause: .connectionLost)
             }
             providersDidChange()
+            // Stop the DeviceController if it has no more provider and if it has never been connected.
             if providers.isEmpty && deviceStore.new {
                 stopSelf()
             }
@@ -961,7 +962,8 @@ extension DeviceController {
     }
 
     final func linkWillConnect(provider: DeviceProvider) {
-        guard connectionSession.state == .disconnected else {
+        // connectionSession.state can be set to .connecting before linkWillConnect call
+        guard connectionSession.state == .disconnected || connectionSession.state == .connecting else {
             ULog.e(.ctrlTag, "Bad connection session state : \(connectionSession.state)")
             return
         }

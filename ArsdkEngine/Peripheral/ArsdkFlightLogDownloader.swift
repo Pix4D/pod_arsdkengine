@@ -47,6 +47,10 @@ protocol ArsdkFlightLogDownloaderDelegate: AnyObject {
     ///   - downloader: the downloader in charge
     /// - Returns: true if the download has been started, false otherwise
     func download(toDirectory directory: URL, downloader: ArsdkFlightLogDownloader) -> Bool
+    /// Deletes all existing flight logs.
+    ///
+    /// - Returns: true if the deletion has been started, false otherwise
+    func delete() -> Bool
 
     /// Cancel current request and all following ones.
     func cancel()
@@ -165,24 +169,17 @@ class ArsdkFlightLogDownloader: DeviceComponentController {
         }
     }
 
-    /// Tells if downloading a flight log is allowed
-    ///
-    /// - Returns: `true` if the flight log download is allowed (the user account exists)
-    public func flightLogMustContainUserInfo(flightLogDate: Date) -> Bool {
-
-        if let userAccountInfo = userAccountUtilityCore?.userAccountInfo, userAccountInfo.account != nil {
-            return userAccountInfo.changeDate < flightLogDate
-        } else {
-            return false
-        }
-    }
-
-    /// Downloads flight logs from the controlled device
+    /// Downloads flight logs from the controlled device.
+    /// In private mode, flight logs are just deleted instead of being downloaded.
     private func download() {
-         if delegate.download(toDirectory: workDir, downloader: self) {
-            flightLogDownloader.update(downloadingFlag: true)
-                .update(completionStatus: .none)
-                .notifyUpdated()
+        if userAccountUtilityCore?.userAccountInfo?.privateMode == true {
+            _ = delegate.delete()
+        } else {
+            if delegate.download(toDirectory: workDir, downloader: self) {
+                flightLogDownloader.update(downloadingFlag: true)
+                    .update(completionStatus: .none)
+                    .notifyUpdated()
+            }
         }
     }
 

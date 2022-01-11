@@ -119,6 +119,11 @@ extension DroneManagerFeature: ArsdkFeatureDroneManagerCallback {
         arsdkProxy.remoteDeviceAutheticationFailed(uid: serial)
     }
 
+    func onConnectionRefused(serial: String!, model: UInt, name: String!) {
+        ULog.d(.ctrlTag, "DroneManagerFeature onConnectionRefused: \(serial ?? "nil") \(name ?? "nil")")
+        arsdkProxy.remoteDeviceConnectionRefused(uid: serial)
+    }
+
     func onKnownDroneItem(serial: String!, model: UInt, name: String!, security: ArsdkFeatureDroneManagerSecurity,
                           hasSavedKey: UInt, listFlagsBitField: UInt) {
         ULog.d(.ctrlTag, "DroneManagerFeature: onKnownDroneItem \(serial ?? "nil") \(model) " +

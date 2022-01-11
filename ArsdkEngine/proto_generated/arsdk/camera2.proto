@@ -279,6 +279,7 @@ message Event {
     PhotoEvent type = 2;
     string media_id = 3;
     PhotoStopReason stop_reason = 4;
+    string resource_id = 5;
 
     option (support) = "091a";
   }

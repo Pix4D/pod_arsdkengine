@@ -45,7 +45,7 @@ public class ArsdkEngine: EngineBaseCore {
 
     /// Black box recorder
     /// Nil if the config does not allow to record black boxes
-    private(set) var blackBoxRecoder: BlackBoxRecorder?
+    private(set) var blackBoxRecorder: BlackBoxRecorder?
 
     /// Constructor
     ///
@@ -69,7 +69,7 @@ public class ArsdkEngine: EngineBaseCore {
 
         if let blackBoxStorage = utilities.getUtility(Utilities.blackBoxStorage) {
             ULog.d(.myparrot, "BLACKBOX Start Recorder")
-            blackBoxRecoder = BlackBoxRecorder(engine: self, blackBoxStorage: blackBoxStorage)
+            blackBoxRecorder = BlackBoxRecorder(engine: self, blackBoxStorage: blackBoxStorage)
         } else {
             ULog.e(.myparrot, "BLACKBOX no Utilities.blackBoxStorage ?")
         }

@@ -39,7 +39,11 @@ class HttpSecureElementDownloaderDelegate: ArsdkSecureElementDownloaderDelegate 
 
     /// Current secure element download request
     /// - Note: this request can change during the overall download task .
-    private var currentRequest: CancelableCore?
+    private var currentRequestForSign: CancelableCore?
+
+    /// Current secure element download request
+    /// - Note: this request can change during the overall download task .
+    private var currentRequestForImg: CancelableCore?
 
     func configure(downloader: SecureElementController) {
         if let droneServer = downloader.deviceController.droneServer {
@@ -53,29 +57,29 @@ class HttpSecureElementDownloaderDelegate: ArsdkSecureElementDownloaderDelegate 
 
     func sign(challenge: String, with operation: SecureElementSignatureOperation,
               downloader: SecureElementController) -> Bool {
-        guard currentRequest == nil else {
+        guard currentRequestForSign == nil else {
             return false
         }
 
-        currentRequest = secureElementApi?.sign(challenge: challenge, with: operation, completion: { token in
+        currentRequestForSign = secureElementApi?.sign(challenge: challenge, with: operation, completion: { token in
             if let token = token {
                 downloader.secureElement.update(
                     newChallengeState: .success(challenge: challenge, token: token)).notifyUpdated()
             } else {
                 downloader.secureElement.update(newChallengeState: .failure(challenge: challenge)).notifyUpdated()
             }
-            self.currentRequest = nil
+            self.currentRequestForSign = nil
         })
 
-        return currentRequest != nil
+        return currentRequestForSign != nil
     }
 
     func downloadCertificateImages(destination: URL, downloader: SecureElementController) -> Bool {
-        guard currentRequest == nil else {
+        guard currentRequestForImg == nil else {
             return false
         }
 
-        currentRequest = secureElementApi?.downloadCertificate(
+        currentRequestForImg = secureElementApi?.downloadCertificate(
             destination: destination,
             completion: { certificateUrl in
                 if let certificateUrl = certificateUrl {
@@ -88,13 +92,14 @@ class HttpSecureElementDownloaderDelegate: ArsdkSecureElementDownloaderDelegate 
                         .update(certificateCompletionStatus: .failed)
                         .notifyUpdated()
                 }
-                self.currentRequest = nil
+                self.currentRequestForImg = nil
         })
 
-        return currentRequest != nil
+        return currentRequestForImg != nil
     }
 
     func cancel() {
-        currentRequest?.cancel()
+        currentRequestForImg?.cancel()
+        currentRequestForSign?.cancel()
     }
 }

@@ -60,6 +60,7 @@ class MissionUpdaterController: DeviceComponentController {
         missionUpdater.update(state: nil)
             .update(progress: nil)
             .update(filePath: nil)
+            .update(missions: [:])
             .unpublish()
     }
 }

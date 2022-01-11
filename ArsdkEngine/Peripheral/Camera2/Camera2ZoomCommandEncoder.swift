@@ -48,9 +48,11 @@ class Camera2ZoomCommandEncoder: NoAckCmdEncoder {
     private var desiredControlMode = Arsdk_Camera_ZoomControlMode.level
     /// Desired target.
     private var desiredTarget: Double = 1.0
+    /// Whether ongoing zoom control commands are cancelled.
+    private var controlCancelled = false
 
     // pomp loop only vars
-    /// Lastest control mode sent to drone.
+    /// Latest control mode sent to drone.
     private var latestControlMode = Arsdk_Camera_ZoomControlMode.level
     /// Latest target sent to drone.
     private var latestTarget: Double = 1.0
@@ -75,28 +77,36 @@ class Camera2ZoomCommandEncoder: NoAckCmdEncoder {
 
             var encoderControlMode = Arsdk_Camera_ZoomControlMode.level
             var encoderTarget: Double = 0.0
+            var cancelled = false
             // set the local var in a synchronized queue
-            self.queue.sync {
-                encoderControlMode = self.desiredControlMode
-                encoderTarget = self.desiredTarget
+            queue.sync {
+                encoderControlMode = desiredControlMode
+                encoderTarget = desiredTarget
+                cancelled = controlCancelled
+            }
+
+            if cancelled {
+                latestControlMode = .level
+                latestTarget = 1
+                return nil
             }
 
             // if control has changed or target has changed
-            if self.latestControlMode != encoderControlMode ||
-                self.latestTarget != encoderTarget {
+            if latestControlMode != encoderControlMode ||
+                latestTarget != encoderTarget {
 
-                self.latestControlMode = encoderControlMode
-                self.latestTarget = encoderTarget
-                self.sentCnt = self.maxRepeatedSent
+                latestControlMode = encoderControlMode
+                latestTarget = encoderTarget
+                sentCnt = maxRepeatedSent
             }
 
             // only decrement the counter if the control is in level,
             // or, if the control is in velocity and target is zero
             if encoderControlMode == .level || encoderTarget == 0.0 {
-                self.sentCnt -= 1
+                sentCnt -= 1
             }
 
-            if self.sentCnt >= 0 {
+            if sentCnt >= 0 {
                 var zoomCommand = Arsdk_Camera_Command.SetZoomTarget()
                 zoomCommand.cameraID = cameraId
                 zoomCommand.controlMode = encoderControlMode
@@ -120,8 +130,16 @@ class Camera2ZoomCommandEncoder: NoAckCmdEncoder {
     ///   - target: target to send
     func control(mode: Camera2ZoomControlMode, target: Double) {
         queue.sync {
-            self.desiredControlMode = mode.arsdkValue!
-            self.desiredTarget = target
+            controlCancelled = false
+            desiredControlMode = mode.arsdkValue!
+            desiredTarget = target
+        }
+    }
+
+    /// Cancels ongoing zoom control commands, if any.
+    func cancelControl() {
+        queue.sync {
+            controlCancelled = true
         }
     }
 }

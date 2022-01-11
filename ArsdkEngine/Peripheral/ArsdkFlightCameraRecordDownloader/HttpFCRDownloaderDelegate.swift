@@ -91,10 +91,10 @@ class HttpFCRDownloaderDelegate: ArsdkFlightCameraRecordDownloaderDelegate {
         flightCameraRecordApi = nil
     }
 
-    func startWatchingContentChanges() {
+    func startWatchingContentChanges(arsdkDownloader: ArsdkFlightCameraRecordDownloader) {
         if let droneServer = deviceController.droneServer {
-            flightCameraRecordWsApi = FlightCameraRecordWsApi(server: droneServer) { [unowned self] in
-                self.download()
+            flightCameraRecordWsApi = FlightCameraRecordWsApi(server: droneServer) {
+                arsdkDownloader.download()
             }
         }
     }
@@ -122,6 +122,20 @@ class HttpFCRDownloaderDelegate: ArsdkFlightCameraRecordDownloaderDelegate {
         queryRecordList()
     }
 
+    func delete() {
+        guard flightCameraRecordApi != nil else {
+            return
+        }
+        guard currentRequest == nil else {
+            requery = true
+            return
+        }
+
+        isCanceled = false
+
+        queryRecordListForDeletion()
+    }
+
     func cancel() {
         isCanceled = true
         // empty the list of pending downloads
@@ -134,7 +148,7 @@ class HttpFCRDownloaderDelegate: ArsdkFlightCameraRecordDownloaderDelegate {
     private func queryRecordList() {
         currentRequest = flightCameraRecordApi?.getFlightCameraRecordList { flightCameraRecordList in
             if let flightCameraRecordList = flightCameraRecordList {
-                self.pendingDownloads = flightCameraRecordList
+                self.pendingDownloads = flightCameraRecordList.sorted { $0.date < $1.date }
                 self.downloadNextCameraRecord()
             } else {
                 self.downloader?.update(completionStatus: .interrupted)
@@ -199,6 +213,41 @@ class HttpFCRDownloaderDelegate: ArsdkFlightCameraRecordDownloaderDelegate {
             }
             // download next camera record
             self.downloadNextCameraRecord()
+        }
+    }
+
+    /// Queries available FCR files from the drone.
+    /// In case some files are available, starts deleting them.
+    private func queryRecordListForDeletion() {
+        currentRequest = flightCameraRecordApi?.getFlightCameraRecordList { flightCameraRecordList in
+            if let flightCameraRecordList = flightCameraRecordList {
+                self.pendingDownloads = flightCameraRecordList
+                self.deleteNextCameraRecord()
+            } else {
+                self.currentRequest = nil
+            }
+        }
+    }
+
+    /// Delete next log.
+    private func deleteNextCameraRecord() {
+        if requery {
+            requery = false
+            queryRecordListForDeletion()
+            return
+        }
+
+        if let flightCameraRecord = pendingDownloads.first {
+            currentRequest = flightCameraRecordApi?.deleteFlightCameraRecord(flightCameraRecord) { _ in
+                // even if the deletion failed, process next record
+                if !self.pendingDownloads.isEmpty {
+                    self.pendingDownloads.removeFirst()
+                }
+                self.deleteNextCameraRecord()
+            }
+        } else {
+            currentRequest = nil
+            isCanceled = false
         }
     }
 }
